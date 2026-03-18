@@ -5,7 +5,8 @@ const path = require('path');
 
 const TAKEN_FILE = path.join(__dirname, 'quiz-last-taken.txt');
 const SHOWN_FILE = path.join(__dirname, 'quiz-last-shown.txt');
-const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+const now = new Date();
+const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
 let lastTaken = '';
 let lastShown = '';

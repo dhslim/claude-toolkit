@@ -7,10 +7,11 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 async function main() {
   // 어제 날짜 범위
   const now = new Date();
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const start = new Date(yesterday.toISOString().split('T')[0] + 'T00:00:00.000Z');
-  const end = new Date(yesterday.toISOString().split('T')[0] + 'T23:59:59.999Z');
+  const localYesterday = new Date(now);
+  localYesterday.setDate(localYesterday.getDate() - 1);
+  const yStr = `${localYesterday.getFullYear()}-${String(localYesterday.getMonth() + 1).padStart(2, '0')}-${String(localYesterday.getDate()).padStart(2, '0')}`;
+  const start = new Date(yStr + 'T00:00:00.000Z');
+  const end = new Date(yStr + 'T23:59:59.999Z');
 
   const client = new MongoClient(process.env.MONGODB_URI, {
     serverSelectionTimeoutMS: 5000
@@ -27,8 +28,11 @@ async function main() {
       // 어제 세션이 없으면 최근 3일 확장
       const threeDaysAgo = new Date(now);
       threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+      // Use local midnight as lower bound
+      const tdStr = `${threeDaysAgo.getFullYear()}-${String(threeDaysAgo.getMonth() + 1).padStart(2, '0')}-${String(threeDaysAgo.getDate()).padStart(2, '0')}`;
+      const threeDaysAgoStart = new Date(tdStr + 'T00:00:00.000Z');
       const recent = await db.collection('sessions').find({
-        session_date: { $gte: threeDaysAgo, $lte: end }
+        session_date: { $gte: threeDaysAgoStart, $lte: end }
       }).sort({ session_date: -1 }).limit(5).toArray();
 
       if (recent.length === 0) {
