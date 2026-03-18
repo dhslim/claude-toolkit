@@ -1,10 +1,10 @@
 #!/bin/bash
-# claude-toolkit setup — run this after cloning on a new machine
+# claude-toolkit macOS setup — run this after cloning
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 
-echo "=== claude-toolkit setup ==="
+echo "=== claude-toolkit setup (macOS) ==="
 
 # 1. Install dependencies
 echo "Installing npm dependencies..."

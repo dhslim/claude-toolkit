@@ -160,7 +160,7 @@ async function main() {
       questions
     };
 
-    await db.collection('quiz_questions').updateOne(
+    await db.collection('daily-quizzes').updateOne(
       { date },
       { $set: quizDoc },
       { upsert: true }
