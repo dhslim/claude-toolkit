@@ -1,0 +1,15 @@
+{
+  "name": "conversation-warehouse",
+  "version": "1.0.0",
+  "description": "Sync Claude Code conversation transcripts to MongoDB Atlas",
+  "private": true,
+  "scripts": {
+    "sync": "node sync-conversations.js",
+    "quiz": "node daily-quiz.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "dotenv": "^16.4.7",
+    "mongodb": "^6.12.0"
+  }
+}

@@ -1,0 +1,6 @@
+node_modules/
+.env
+sync.log
+last-hook-stdin.json
+quiz-last-shown.txt
+quiz-last-taken.txt
