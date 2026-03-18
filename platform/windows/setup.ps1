@@ -16,11 +16,8 @@ Pop-Location
 $envFile = Join-Path $ScriptDir ".env"
 if (-not (Test-Path $envFile)) {
     $mongoUri = Read-Host "MongoDB URI"
-    $apiKey = Read-Host "Anthropic API Key (optional, press Enter to skip)"
-    if (-not $apiKey) { $apiKey = "your-api-key-here" }
     @"
 MONGODB_URI=$mongoUri
-ANTHROPIC_API_KEY=$apiKey
 "@ | Out-File -FilePath $envFile -Encoding utf8
     Write-Host ".env created"
 } else {

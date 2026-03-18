@@ -15,9 +15,7 @@ npm install
 if [ ! -f "$SCRIPT_DIR/.env" ]; then
   echo ""
   read -p "MongoDB URI: " MONGO_URI
-  read -p "Anthropic API Key (optional, press Enter to skip): " API_KEY
   echo "MONGODB_URI=$MONGO_URI" > "$SCRIPT_DIR/.env"
-  echo "ANTHROPIC_API_KEY=${API_KEY:-your-api-key-here}" >> "$SCRIPT_DIR/.env"
   echo ".env created"
 else
   echo ".env already exists, skipping"
