@@ -52,7 +52,6 @@ SessionEnd:
 
 SessionStart:
   1. sync_conversations.py --scan — async, timeout 60000ms (Windows: pythonw.exe)
-  2. quiz_check.py — timeout 3000ms (Windows: python.exe)
 
 The hooks JSON structure for each entry is:
 {

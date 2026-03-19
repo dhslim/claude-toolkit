@@ -16,7 +16,8 @@ Then open Claude Code and paste the install prompt from [INSTALL.md](INSTALL.md)
 claude-toolkit/
 ├── sync_conversations.py  # Core sync script (--file, --scan modes)
 ├── hook_sync.py           # Stop/SessionEnd hook wrapper (detached process)
-├── quiz_check.py          # Stop/SessionStart hook — daily quiz gate
+├── quiz_check.py          # Stop hook — daily quiz gate
+├── quiz_dismiss.py        # Dismiss quiz for today
 ├── quiz_data.py           # Fetch yesterday's conversations from MongoDB
 ├── quiz_save.py           # Save generated quiz to MongoDB
 ├── quiz_mark_done.py      # Mark quiz as completed
@@ -36,7 +37,7 @@ claude-toolkit/
 |------|---------|--------|--------|
 | **Stop** | After Claude responds | Sync current session + quiz check | Normal flow (99%) |
 | **SessionEnd** | `/exit` or terminal close | Sync current session | Exit after interruption |
-| **SessionStart** | Every Claude start | Full scan (`--scan`) + quiz check | Sessions missed by force-quit |
+| **SessionStart** | Every Claude start | Full scan (`--scan`) | Sessions missed by force-quit |
 
 ### Why no cron?
 
@@ -64,20 +65,20 @@ claude-toolkit/
 - `claude -c` / `claude --resume` → appends to same JSONL file (same session_id)
 - No separate file created → no duplicate storage
 
-### Quiz triggers on both Stop and SessionStart
-- SessionStart covers fresh sessions
-- Stop covers long-lived sessions and resumed sessions (`claude -c`)
-- Marker files prevent showing the quiz more than once per day
+### Quiz triggers on Stop only
+- Stop fires after every response — guaranteed to hit
+- Marker files (taken/dismissed) prevent showing the quiz more than once per day
+- User can explicitly dismiss the quiz for the day ("skip quiz", "not now")
 
 ## Daily Quiz
 
 ### Flow
-1. `quiz_check.py` runs on Stop/SessionStart
-2. If today's quiz not taken → injects quiz instructions into Claude context
+1. `quiz_check.py` runs on Stop hook (after each Claude response)
+2. If today's quiz not taken or dismissed → injects quiz instructions into Claude context
 3. Claude runs `quiz_data.py` to fetch yesterday's conversations
 4. Claude generates 10 questions, saves via `quiz_save.py`
 5. User answers, Claude grades, then `quiz_mark_done.py` marks complete
-6. Same-day restarts skip the quiz
+6. Same-day restarts skip the quiz (user can also dismiss with "skip quiz")
 
 ### Features
 - No Anthropic API key needed — Claude Code itself generates the quiz
