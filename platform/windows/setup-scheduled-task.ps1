@@ -5,8 +5,13 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path))
 
 $taskName = "ConversationWarehouseSync"
-$scriptPath = Join-Path $ScriptDir "sync-conversations.js"
-$nodePath = (Get-Command node).Source
+$syncScript = Join-Path $ScriptDir "sync_conversations.py"
+$pythonPath = Join-Path $ScriptDir ".venv\Scripts\python.exe"
+
+if (-not (Test-Path $pythonPath)) {
+    Write-Error "Python venv not found at $pythonPath. Run: python -m venv .venv && .venv\Scripts\pip install -r requirements.txt"
+    exit 1
+}
 
 # Remove existing task
 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
@@ -14,8 +19,8 @@ Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Silent
 # Hourly trigger
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).Date -RepetitionInterval (New-TimeSpan -Hours 1) -RepetitionDuration (New-TimeSpan -Days 365)
 
-# Action: node sync-conversations.js
-$action = New-ScheduledTaskAction -Execute $nodePath -Argument $scriptPath -WorkingDirectory $ScriptDir
+# Action: python sync_conversations.py --scan
+$action = New-ScheduledTaskAction -Execute $pythonPath -Argument "$syncScript --scan" -WorkingDirectory $ScriptDir
 
 # Settings: run even on battery, start when available
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
