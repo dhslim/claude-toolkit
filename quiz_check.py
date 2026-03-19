@@ -4,9 +4,17 @@
 from pathlib import Path
 from _shared import today_kst
 
+import sys
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 TAKEN_FILE = SCRIPT_DIR / 'quiz-last-taken.txt'
 SHOWN_FILE = SCRIPT_DIR / 'quiz-last-shown.txt'
+
+# Venv python path for commands in output instructions
+if sys.platform == 'win32':
+    VENV_PYTHON = str(SCRIPT_DIR / '.venv' / 'Scripts' / 'python.exe')
+else:
+    VENV_PYTHON = str(SCRIPT_DIR / '.venv' / 'bin' / 'python')
 
 today = today_kst()
 
@@ -34,19 +42,19 @@ IMPORTANT: Before doing ANY work the user asks for, you MUST run the daily quiz 
 
 Steps:
 1. Launch a BACKGROUND agent to handle steps 2-4 below. Greet the user and tell them the quiz is being prepared while they can share what they want to work on.
-2. (In background agent) Run: python {SCRIPT_DIR}/quiz_data.py
+2. (In background agent) Run: {VENV_PYTHON} {SCRIPT_DIR}/quiz_data.py
    This returns yesterday's conversation summaries from MongoDB.
 3. (In background agent) Generate exactly 10 multiple-choice questions (4 choices each) based on that data.
    Focus on: concepts discussed, code patterns used, technical decisions made, bugs fixed.
 4. (In background agent) IMMEDIATELY save the quiz to MongoDB by piping JSON to stdin:
-   echo '{{"questions":[{{"q":"...","choices":["A)...","B)...","C)...","D)..."],"answer":"B"}},...]}}'  | python {SCRIPT_DIR}/quiz_save.py
+   echo '{{"questions":[{{"q":"...","choices":["A)...","B)...","C)...","D)..."],"answer":"B"}},...]}}'  | {VENV_PYTHON} {SCRIPT_DIR}/quiz_save.py
    The JSON must have a "questions" array where each item has "q", "choices", and "answer" fields.
    Multiple quizzes per day are allowed — each save creates a new document, never overwrites.
    Return the full list of questions and answers in the agent result.
 5. When the background agent completes, present ALL 10 questions at once in a numbered list.
 6. Wait for the user to answer.
 7. Grade the answers and show explanations for wrong ones.
-8. Run: python {SCRIPT_DIR}/quiz_mark_done.py
+8. Run: {VENV_PYTHON} {SCRIPT_DIR}/quiz_mark_done.py
    This marks today's quiz as complete.
 
 Keep it quick and fun. Do NOT skip the quiz.""")

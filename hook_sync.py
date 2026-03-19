@@ -18,7 +18,7 @@ SYNC_SCRIPT = SCRIPT_DIR / 'sync_conversations.py'
 
 # Determine venv python path
 if sys.platform == 'win32':
-    PYTHON = str(SCRIPT_DIR / '.venv' / 'Scripts' / 'python.exe')
+    PYTHON = str(SCRIPT_DIR / '.venv' / 'Scripts' / 'pythonw.exe')
 else:
     PYTHON = str(SCRIPT_DIR / '.venv' / 'bin' / 'python')
 

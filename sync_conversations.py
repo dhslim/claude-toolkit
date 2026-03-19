@@ -237,19 +237,13 @@ def sync_from_hook(collection, stdin_data):
 
 def read_stdin(timeout_ms=500):
     """Try to read stdin with a timeout. Returns data or empty string."""
-    import select
     if sys.platform == 'win32':
-        # Windows: can't select on stdin; try non-blocking read
-        import msvcrt
-        import time
-        data = ''
-        deadline = time.monotonic() + timeout_ms / 1000
-        # If stdin is a pipe/file, read it all
+        # Windows: select() doesn't work on stdin; check if piped
         if not sys.stdin.isatty():
             return sys.stdin.read().strip()
-        # If it's a TTY, nothing piped
         return ''
     else:
+        import select
         ready, _, _ = select.select([sys.stdin], [], [], timeout_ms / 1000)
         if ready:
             return sys.stdin.read().strip()

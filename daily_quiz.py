@@ -13,7 +13,7 @@ import io
 import sys
 from datetime import datetime, timedelta, timezone
 
-from _shared import get_db, now_kst
+from _shared import get_db, now_kst, KST
 
 # Ensure stdout is UTF-8 on Windows
 if sys.stdout.encoding != 'utf-8':
@@ -78,8 +78,8 @@ def main():
 
     client, db = get_db()
     try:
-        start_dt = datetime.fromisoformat(f'{date}T00:00:00+00:00')
-        end_dt = datetime.fromisoformat(f'{date}T23:59:59+00:00')
+        start_dt = datetime.fromisoformat(f'{date}T00:00:00').replace(tzinfo=KST)
+        end_dt = datetime.fromisoformat(f'{date}T23:59:59').replace(tzinfo=KST)
 
         sessions = list(db['sessions'].find({
             'session_date': {'$gte': start_dt, '$lte': end_dt}
