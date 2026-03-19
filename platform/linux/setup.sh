@@ -24,14 +24,14 @@ else
   echo ".env already exists, skipping"
 fi
 
-# 3. Print hook config for user to verify/apply
+# 3. Install hooks into ~/.claude/settings.json
 SETTINGS_FILE="$HOME/.claude/settings.json"
 mkdir -p "$HOME/.claude"
 
 if [ -f "$SETTINGS_FILE" ]; then
   echo ""
   echo "Existing settings.json found."
-  echo "You'll need to manually add the hooks section."
+  echo "You'll need to manually merge the hooks section below."
   echo "See below for the hook configuration:"
 else
   echo ""
@@ -44,11 +44,14 @@ cat << HOOKEOF
 
 {
   "hooks": {
-    "Stop": [{ "matcher": "", "hooks": [{
-      "type": "command",
-      "command": "$PYTHON $SCRIPT_DIR/hook_sync.py",
-      "async": true, "timeout": 30000
-    }]}],
+    "Stop": [{ "matcher": "", "hooks": [
+      { "type": "command",
+        "command": "$PYTHON $SCRIPT_DIR/hook_sync.py",
+        "async": true, "timeout": 30000 },
+      { "type": "command",
+        "command": "$PYTHON $SCRIPT_DIR/quiz_check.py",
+        "timeout": 3000 }
+    ]}],
     "SessionEnd": [{ "matcher": "", "hooks": [{
       "type": "command",
       "command": "$PYTHON $SCRIPT_DIR/hook_sync.py",
