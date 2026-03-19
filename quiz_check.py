@@ -1,14 +1,23 @@
 #!/usr/bin/env python3
-"""SessionStart hook — if today's quiz hasn't been taken, instruct Claude to run it."""
+"""Stop hook — if today's quiz hasn't been taken, block Claude and inject quiz instructions."""
 
+import json
+import sys
 from pathlib import Path
 from _shared import today_kst
-
-import sys
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 TAKEN_FILE = SCRIPT_DIR / 'quiz-last-taken.txt'
 DISMISSED_FILE = SCRIPT_DIR / 'quiz-last-dismissed.txt'
+
+# Read hook stdin to check stop_hook_active (prevents infinite loop)
+try:
+    hook_input = json.loads(sys.stdin.read())
+except Exception:
+    hook_input = {}
+
+if hook_input.get('stop_hook_active'):
+    raise SystemExit(0)
 
 # Venv python path for commands in output instructions
 if sys.platform == 'win32':
@@ -32,8 +41,8 @@ except FileNotFoundError:
 if last_taken == today or last_dismissed == today:
     raise SystemExit(0)
 
-# Output instructions for Claude (SessionStart stdout is injected into Claude context)
-print(f"""[DAILY QUIZ] The user has not taken today's quiz yet.
+# Build quiz instructions
+reason = f"""[DAILY QUIZ] The user has not taken today's quiz yet.
 
 IMPORTANT: Before doing ANY work the user asks for, you MUST run the daily quiz first.
 
@@ -58,4 +67,7 @@ If the user says "skip quiz", "not now", or "no quiz today", run:
    {VENV_PYTHON} {SCRIPT_DIR}/quiz_dismiss.py
 This dismisses the quiz for today. Respect their choice and move on.
 
-Keep it quick and fun.""")
+Keep it quick and fun."""
+
+# Output JSON for Stop hook — block Claude and inject quiz instructions
+print(json.dumps({"decision": "block", "reason": reason}))
