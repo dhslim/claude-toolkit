@@ -67,7 +67,8 @@ claude-toolkit/
 
 ### Quiz triggers on Stop only
 - Stop fires after every response — guaranteed to hit
-- Marker files (taken/dismissed) prevent showing the quiz more than once per day
+- Markers stored in MongoDB (global, shared across machines) + local files (fast cache)
+- Local cache checked first (0ms) → MongoDB only on cache miss (once/day/machine)
 - User can explicitly dismiss the quiz for the day ("skip quiz", "not now")
 
 ## Daily Quiz
@@ -83,7 +84,8 @@ claude-toolkit/
 ### Features
 - No Anthropic API key needed — Claude Code itself generates the quiz
 - Non-blocking — background agent prepares while user shares their task
-- Once per day — marker file prevents repeats
+- Once per day — global markers in MongoDB prevent repeats across machines
+- Local file cache ensures near-zero latency on repeated checks
 
 ## MongoDB Schema
 
@@ -108,6 +110,15 @@ claude-toolkit/
   file_path: "/normalized/path.jsonl", // unique index
   line_count: Number,
   synced_at: ISODate
+}
+```
+
+### quiz-markers collection
+```js
+{
+  date: "2026-03-19",              // unique index (KST date)
+  taken_at: ISODate | null,        // when quiz was completed
+  dismissed_at: ISODate | null     // when quiz was dismissed
 }
 ```
 

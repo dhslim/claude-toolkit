@@ -45,7 +45,7 @@ Hooks to add:
 
 Stop:
   1. hook_sync.py — async, timeout 30000ms (Windows: pythonw.exe)
-  2. quiz_check.py — timeout 3000ms (Windows: python.exe)
+  2. quiz_check.py — timeout 5000ms (Windows: python.exe)
 
 SessionEnd:
   1. hook_sync.py — timeout 10000ms (Windows: pythonw.exe)
