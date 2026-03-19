@@ -8,7 +8,7 @@ import sys
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 TAKEN_FILE = SCRIPT_DIR / 'quiz-last-taken.txt'
-SHOWN_FILE = SCRIPT_DIR / 'quiz-last-shown.txt'
+DISMISSED_FILE = SCRIPT_DIR / 'quiz-last-dismissed.txt'
 
 # Venv python path for commands in output instructions
 if sys.platform == 'win32':
@@ -19,21 +19,18 @@ else:
 today = today_kst()
 
 last_taken = ''
-last_shown = ''
+last_dismissed = ''
 try:
     last_taken = TAKEN_FILE.read_text(encoding='utf-8').strip()
 except FileNotFoundError:
     pass
 try:
-    last_shown = SHOWN_FILE.read_text(encoding='utf-8').strip()
+    last_dismissed = DISMISSED_FILE.read_text(encoding='utf-8').strip()
 except FileNotFoundError:
     pass
 
-if last_taken == today or last_shown == today:
+if last_taken == today or last_dismissed == today:
     raise SystemExit(0)
-
-# Mark as shown today
-SHOWN_FILE.write_text(today, encoding='utf-8')
 
 # Output instructions for Claude (SessionStart stdout is injected into Claude context)
 print(f"""[DAILY QUIZ] The user has not taken today's quiz yet.
@@ -57,4 +54,8 @@ Steps:
 8. Run: {VENV_PYTHON} {SCRIPT_DIR}/quiz_mark_done.py
    This marks today's quiz as complete.
 
-Keep it quick and fun. Do NOT skip the quiz.""")
+If the user says "skip quiz", "not now", or "no quiz today", run:
+   {VENV_PYTHON} {SCRIPT_DIR}/quiz_dismiss.py
+This dismisses the quiz for today. Respect their choice and move on.
+
+Keep it quick and fun.""")
