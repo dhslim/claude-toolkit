@@ -41,8 +41,8 @@ except FileNotFoundError:
 if last_taken == today or last_dismissed == today:
     raise SystemExit(0)
 
-# Build quiz instructions
-reason = f"""[DAILY QUIZ] The user has not taken today's quiz yet.
+# Write detailed instructions to a temp file for Claude to read
+instructions = f"""[DAILY QUIZ] The user has not taken today's quiz yet.
 
 IMPORTANT: Before doing ANY work the user asks for, you MUST run the daily quiz first.
 
@@ -69,5 +69,9 @@ This dismisses the quiz for today. Respect their choice and move on.
 
 Keep it quick and fun."""
 
-# Output JSON for Stop hook — block Claude and inject quiz instructions
+instructions_file = SCRIPT_DIR / 'quiz-instructions-active.txt'
+instructions_file.write_text(instructions, encoding='utf-8')
+
+# Short reason for user-visible feedback, full details in file for Claude
+reason = f"Daily quiz pending. Read {instructions_file} and follow the instructions."
 print(json.dumps({"decision": "block", "reason": reason}))
