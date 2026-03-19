@@ -41,6 +41,25 @@ except FileNotFoundError:
 if last_taken == today or last_dismissed == today:
     raise SystemExit(0)
 
+# Local cache miss — check MongoDB (source of truth, shared across machines)
+try:
+    from _shared import get_db_fast
+    client, db = get_db_fast()
+    doc = db['quiz-markers'].find_one({'date': today})
+    client.close()
+    if doc and (doc.get('taken_at') or doc.get('dismissed_at')):
+        # Another machine marked it — update local cache
+        if doc.get('taken_at'):
+            TAKEN_FILE.write_text(today, encoding='utf-8')
+        if doc.get('dismissed_at'):
+            DISMISSED_FILE.write_text(today, encoding='utf-8')
+        raise SystemExit(0)
+except SystemExit:
+    raise
+except Exception:
+    # MongoDB unreachable — fall through to show quiz (safe default)
+    pass
+
 # Write detailed instructions to a temp file for Claude to read
 instructions = f"""[DAILY QUIZ] The user has not taken today's quiz yet.
 

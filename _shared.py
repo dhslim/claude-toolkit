@@ -49,6 +49,21 @@ _TRANSIENT_ERRORS = (AutoReconnect, ConnectionFailure,
                      WaitQueueTimeoutError)
 
 
+def get_db_fast(timeout_ms=2000):
+    """Like get_db() but with aggressive timeouts for time-critical hooks."""
+    uri = os.environ.get('MONGODB_URI')
+    if not uri:
+        raise RuntimeError('MONGODB_URI environment variable not set')
+    client = MongoClient(uri,
+                         serverSelectionTimeoutMS=timeout_ms,
+                         connectTimeoutMS=timeout_ms,
+                         socketTimeoutMS=timeout_ms,
+                         retryWrites=False,
+                         retryReads=False)
+    db = client['conversation-warehouse']
+    return client, db
+
+
 def with_retry(fn, max_retries=3):
     """Call fn() with exponential backoff on transient MongoDB errors."""
     for attempt in range(1, max_retries + 1):
