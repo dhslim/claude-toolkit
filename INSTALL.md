@@ -66,7 +66,23 @@ The hooks JSON structure for each entry is:
 
 Only include "async": true when specified above. Omit it otherwise.
 
-### 5. Verify
+### 5. Update global CLAUDE.md
+
+Read ~/.claude/CLAUDE.md (create it if it doesn't exist). If there is no "MongoDB Atlas" section, append the following block. If there is one, update it to match. Preserve all other existing content.
+
+Use the absolute path to this repo's directory and the venv python path (platform-appropriate).
+
+```
+## MongoDB Atlas
+- When referencing "MongoDB", this means the MongoDB Atlas cluster.
+- Scripts: `<absolute path to this repo>` (Python, venv at `.venv/`)
+- Connection: uses `MONGODB_URI` from `<absolute path to this repo>/.env`
+- Database: `conversation-warehouse`
+- To query: `cd` to the scripts directory and use the venv python with `from _shared import get_db`.
+- Schema and collections are documented in the repo's README.md.
+```
+
+### 6. Verify
 
 Run sync_conversations.py --scan one more time to confirm everything works.
 
