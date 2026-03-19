@@ -21,7 +21,7 @@ claude-toolkit/
 ├── quiz_data.py           # Fetch yesterday's conversations from MongoDB
 ├── quiz_save.py           # Save generated quiz to MongoDB
 ├── quiz_mark_done.py      # Mark quiz as completed
-├── daily_quiz.py          # Standalone quiz generator (uses Anthropic API)
+├── daily_quiz.py          # Standalone quiz data fetcher (supports --date arg)
 ├── _shared.py             # Shared utilities (DB connection, retry, KST timezone)
 ├── requirements.txt       # pymongo, python-dotenv
 ├── .env.example
