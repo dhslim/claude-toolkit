@@ -77,6 +77,9 @@ Steps:
    Multiple quizzes per day are allowed — each save creates a new document, never overwrites.
    Return the full list of questions and answers in the agent result.
 5. When the background agent completes, present ALL 10 questions at once in a numbered list.
+   Use compact one-line format for choices, e.g.:
+   **1.** Question text?
+   A) Option 1 · B) Option 2 · C) Option 3 · D) Option 4
 6. Wait for the user to answer.
 7. Grade the answers and show explanations for wrong ones.
 8. Run: {VENV_PYTHON} {SCRIPT_DIR}/quiz_mark_done.py
