@@ -72,6 +72,7 @@ def parse_jsonl(file_path):
             'content': msg.get('content') if isinstance(msg, dict) else None,
             'timestamp': obj.get('timestamp'),
             'uuid': obj.get('uuid'),
+            'parentUuid': obj.get('parentUuid'),
         })
 
     if not session_id:

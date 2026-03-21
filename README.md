@@ -106,7 +106,7 @@ claude-toolkit/
   synced_at: ISODate,
   message_count: Number,
   raw_line_count: Number,
-  messages: [{ type, role, content, timestamp, uuid }]
+  messages: [{ type, role, content, timestamp, uuid, parentUuid }]
 }
 ```
 
