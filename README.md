@@ -61,9 +61,15 @@ claude-toolkit/
 - Everything else stored (tool_use input, tool_result output, thinking blocks)
 - Auto-truncates if >14MB
 
-### `claude -c` deduplication
-- `claude -c` / `claude --resume` → appends to same JSONL file (same session_id)
-- No separate file created → no duplicate storage
+### Session forking behavior (same-machine concurrent resume)
+- When two terminals `claude --resume` the same session, both append to the **same JSONL file**
+- No file locking — relies on `O_APPEND` atomicity (safe on macOS APFS)
+- Each message has a `uuid` and `parentUuid`, forming a tree (not a flat list)
+- A fork creates a branch point: two messages share the same `parentUuid`
+- **Claude Code `--resume`**: walks the `parentUuid` chain backward from the last-written message → only shows one fork. The other fork's messages are in the file but invisible to the user
+- **MongoDB sync**: reads the JSONL flat (ignores `parentUuid`) → stores the **superset** of all forks in chronological order. No data loss
+- Interleaving in MongoDB is minimal in practice since forks are rare (deliberate concurrent resume only)
+- When reading session transcripts from MongoDB, be aware that forked sessions may have interleaved messages from separate conversation branches
 
 ### Quiz triggers on Stop only
 - Stop fires after every response — guaranteed to hit
