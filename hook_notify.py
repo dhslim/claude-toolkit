@@ -37,10 +37,7 @@ def main():
         import winsound
         sound = Path(__file__).resolve().parent / 'notify.wav'
         winsound.PlaySound(str(sound), winsound.SND_FILENAME)
-    else:
-        # Linux / SSH — send BEL to terminal
-        sys.stdout.write('\a')
-        sys.stdout.flush()
+    # Linux/SSH: no reliable sound method — skip silently
 
 
 if __name__ == '__main__':
