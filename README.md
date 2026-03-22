@@ -16,6 +16,8 @@ Then open Claude Code and paste the install prompt from [INSTALL.md](INSTALL.md)
 claude-toolkit/
 ├── sync_conversations.py  # Core sync script (--file, --scan modes)
 ├── hook_sync.py           # Stop/SessionEnd hook wrapper (detached process)
+├── hook_session_guard.py   # SessionStart hook — warns if session already open
+├── hook_session_guard_cleanup.py  # SessionEnd hook — removes session lock
 ├── quiz_check.py          # Stop hook — daily quiz gate
 ├── quiz_dismiss.py        # Dismiss quiz for today
 ├── quiz_data.py           # Fetch yesterday's conversations from MongoDB
@@ -31,13 +33,13 @@ claude-toolkit/
 
 ## Sync Flow
 
-3 hooks cover all sync scenarios — no cron needed:
+Hooks cover all sync scenarios — no cron needed:
 
 | Hook | Trigger | Action | Covers |
 |------|---------|--------|--------|
 | **Stop** | After Claude responds | Sync current session + quiz check | Normal flow (99%) |
-| **SessionEnd** | `/exit` or terminal close | Sync current session | Exit after interruption |
-| **SessionStart** | Every Claude start | Full scan (`--scan`) | Sessions missed by force-quit |
+| **SessionEnd** | `/exit` or terminal close | Sync current session + remove session lock | Exit after interruption |
+| **SessionStart** | Every Claude start | Session guard + full scan (`--scan`) | Duplicate session warning + missed sessions |
 
 ### Why no cron?
 
@@ -70,6 +72,34 @@ claude-toolkit/
 - **MongoDB sync**: reads the JSONL flat (ignores `parentUuid`) → stores the **superset** of all forks in chronological order. No data loss
 - Interleaving in MongoDB is minimal in practice since forks are rare (deliberate concurrent resume only)
 - When reading session transcripts from MongoDB, be aware that forked sessions may have interleaved messages from separate conversation branches
+
+### Session guard (duplicate session warning)
+- `hook_session_guard.py` runs on SessionStart — checks if another Claude process already has the same session open
+- Uses PID lock files in `~/.claude/session-locks/` to track active sessions
+- If a collision is detected, emits a **blocking warning** suggesting `cfork` or `cread` instead
+- User can dismiss the warning to continue anyway (lock file is then updated to the new process)
+- `hook_session_guard_cleanup.py` runs on SessionEnd to remove the lock file
+- Stale locks from crashed sessions are handled automatically via PID liveness check
+
+### Safe session reading with `--fork-session`
+Claude Code's `--fork-session` flag creates a new session ID on resume, protecting the original session from accidental writes.
+
+**Recommended shell aliases** (add to `~/.zshrc`):
+```bash
+alias cfork='claude -r --fork-session'   # pick a session to fork-resume
+alias cread='claude -c --fork-session'   # fork-continue latest session (for reading)
+```
+
+**Exit behavior with `--fork-session`** (verified experimentally):
+
+| Action | New JSONL created? | Side effects? |
+|--------|-------------------|---------------|
+| `cfork` + Ctrl+C | No | None |
+| `cread` + Ctrl+C | No | None |
+| `cfork` + `/rename` + `/exit` | Yes | New session in MongoDB |
+| `cread` + `/rename` + `/exit` | Yes | New session in MongoDB |
+
+**Rule: Always close fork sessions with Ctrl+C to avoid creating duplicate sessions.**
 
 ### Quiz triggers on Stop only
 - Stop fires after every response — guaranteed to hit
