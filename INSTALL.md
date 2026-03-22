@@ -48,10 +48,12 @@ Stop:
   2. quiz_check.py — timeout 5000ms (Windows: python.exe)
 
 SessionEnd:
-  1. hook_sync.py — timeout 10000ms (Windows: pythonw.exe)
+  1. hook_sync.py — async, timeout 10000ms (Windows: pythonw.exe)
+  2. hook_session_guard_cleanup.py — async, timeout 5000ms (Windows: pythonw.exe)
 
 SessionStart:
-  1. sync_conversations.py --scan — async, timeout 60000ms (Windows: pythonw.exe)
+  1. hook_session_guard.py — timeout 5000ms (Windows: python.exe)
+  2. sync_conversations.py --scan — async, timeout 60000ms (Windows: pythonw.exe)
 
 The hooks JSON structure for each entry is:
 {
@@ -82,7 +84,17 @@ Use the absolute path to this repo's directory and the venv python path (platfor
 - Schema and collections are documented in the repo's README.md.
 ```
 
-### 6. Verify
+### 6. Add shell aliases
+
+Append the following to ~/.zshrc (or ~/.bashrc on Linux), if not already present:
+
+```bash
+# Claude Code fork shortcuts
+alias cfork='claude -r --fork-session'   # pick a session to fork-resume
+alias cread='claude -c --fork-session'   # fork-continue latest session (for reading)
+```
+
+### 7. Verify
 
 Run sync_conversations.py --scan one more time to confirm everything works.
 
