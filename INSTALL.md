@@ -93,12 +93,30 @@ Use the absolute path to this repo's directory and the venv python path (platfor
 
 ### 6. Add shell aliases
 
-Append the following to ~/.zshrc (or ~/.bashrc on Linux), if not already present:
+Add the following aliases if not already present.
+
+macOS/Linux — append to ~/.zshrc or ~/.bashrc:
 
 ```bash
 # Claude Code fork shortcuts
 alias cfork='claude -r --fork-session'   # pick a session to fork-resume
 alias cread='claude -c --fork-session'   # fork-continue latest session (for reading)
+```
+
+Windows (Git Bash) — append to ~/.bashrc:
+
+```bash
+# Claude Code fork shortcuts
+alias cfork='claude -r --fork-session'
+alias cread='claude -c --fork-session'
+```
+
+Windows (PowerShell) — append to $PROFILE:
+
+```powershell
+# Claude Code fork shortcuts
+function cfork { claude -r --fork-session }
+function cread { claude -c --fork-session }
 ```
 
 ### 7. Verify
