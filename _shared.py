@@ -49,7 +49,7 @@ _TRANSIENT_ERRORS = (AutoReconnect, ConnectionFailure,
                      WaitQueueTimeoutError)
 
 
-def get_db_fast(timeout_ms=2000):
+def get_db_fast(timeout_ms=5000):
     """Like get_db() but with aggressive timeouts for time-critical hooks."""
     uri = os.environ.get('MONGODB_URI')
     if not uri:

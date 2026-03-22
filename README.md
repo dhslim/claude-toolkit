@@ -22,8 +22,11 @@ claude-toolkit/
 ├── quiz_dismiss.py        # Dismiss quiz for today
 ├── quiz_data.py           # Fetch yesterday's conversations from MongoDB
 ├── quiz_save.py           # Save generated quiz to MongoDB
-├── quiz_mark_done.py      # Mark quiz as completed
+├── quiz_grade.py          # Grade quiz, save score, and mark done (atomic)
+├── quiz_mark_done.py      # Mark quiz as completed (legacy, replaced by quiz_grade.py)
 ├── daily_quiz.py          # Standalone quiz data fetcher (supports --date arg)
+├── hook_notify.py         # Stop hook — cross-platform notification sound (>30s turns)
+├── hook_turn_start.py     # UserPromptSubmit hook — records turn start timestamp
 ├── _shared.py             # Shared utilities (DB connection, retry, KST timezone)
 ├── requirements.txt       # pymongo, python-dotenv
 ├── .env.example
@@ -101,10 +104,11 @@ alias cread='claude -c --fork-session'   # fork-continue latest session (for rea
 
 **Rule: Always close fork sessions with Ctrl+C to avoid creating duplicate sessions.**
 
-### Notification sound (macOS)
-- Plays Glass sound when a turn takes longer than 30 seconds
-- `UserPromptSubmit` hook records turn start time to `/tmp/claude-turn-start`
-- `Stop` hook checks elapsed time and plays sound only if > 30s
+### Notification sound (cross-platform)
+- Plays a notification sound when a turn takes longer than 30 seconds
+- `hook_turn_start.py` (UserPromptSubmit) records turn start time to `~/.claude/turn-start`
+- `hook_notify.py` (Stop) checks elapsed time and plays sound only if > 30s
+- macOS: Glass.aiff, Windows: system beep, Linux/SSH: terminal bell
 - Short turns (active chatting) produce no sound — avoids annoyance when focused
 
 ### Quiz triggers on Stop only
@@ -120,7 +124,7 @@ alias cread='claude -c --fork-session'   # fork-continue latest session (for rea
 2. If today's quiz not taken or dismissed → injects quiz instructions into Claude context
 3. Claude runs `quiz_data.py` to fetch yesterday's conversations
 4. Claude generates 10 questions, saves via `quiz_save.py`
-5. User answers, Claude grades, then `quiz_mark_done.py` marks complete
+5. User answers, Claude pipes answers to `quiz_grade.py` which grades, saves score, and marks complete atomically
 6. Same-day restarts skip the quiz (user can also dismiss with "skip quiz")
 
 ### Features

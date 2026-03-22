@@ -81,9 +81,11 @@ Steps:
    **1.** Question text?
    A) Option 1 · B) Option 2 · C) Option 3 · D) Option 4
 6. Wait for the user to answer.
-7. Grade the answers and show explanations for wrong ones.
-8. Run: {VENV_PYTHON} {SCRIPT_DIR}/quiz_mark_done.py
-   This marks today's quiz as complete.
+7. Grade by piping the user's answers as JSON to stdin:
+   echo '{{"quiz_id": "<_id from the saved quiz>", "answers": ["B", "C", "A", ...]}}' | {VENV_PYTHON} {SCRIPT_DIR}/quiz_grade.py
+   This grades the quiz, saves the score to MongoDB, and marks the quiz as complete — all in one step.
+   The script returns JSON with score, total, and per-question results (including correct answers).
+   Show the user their score and explain any wrong answers using the returned data.
 
 If the user says "skip quiz", "not now", or "no quiz today", run:
    {VENV_PYTHON} {SCRIPT_DIR}/quiz_dismiss.py

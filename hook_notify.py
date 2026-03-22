@@ -3,7 +3,7 @@
 
 Cross-platform:
   - macOS: afplay Glass sound
-  - Windows: winsound Beep
+  - Windows: Windows Proximity Notification sound
   - Linux/SSH: BEL character (terminal bell)
 """
 
@@ -35,7 +35,8 @@ def main():
         )
     elif system == 'Windows':
         import winsound
-        winsound.MessageBeep(winsound.MB_ICONASTERISK)
+        sound = Path(__file__).resolve().parent / 'notify.wav'
+        winsound.PlaySound(str(sound), winsound.SND_FILENAME)
     else:
         # Linux / SSH — send BEL to terminal
         sys.stdout.write('\a')

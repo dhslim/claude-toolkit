@@ -7,7 +7,7 @@ Clone the repo, `cd` into it, open Claude Code, and paste the prompt below. Clau
 ## Prompt
 
 ```
-Install the conversation-warehouse toolkit from the current working directory.
+Install the claude-toolkit from the current working directory.
 
 Use absolute paths for all commands and hook configurations.
 
