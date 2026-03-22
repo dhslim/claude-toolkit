@@ -46,7 +46,11 @@ Hooks to add:
 Stop:
   1. hook_sync.py — async, timeout 30000ms (Windows: pythonw.exe)
   2. quiz_check.py — timeout 5000ms (Windows: python.exe)
-  3. afplay /System/Library/Sounds/Glass.aiff — async (macOS only, skip on other platforms)
+  3. Notification sound (turn duration > 10s) — async (macOS only, skip on other platforms):
+     Command: start=$(cat /tmp/claude-turn-start 2>/dev/null || echo 0); now=$(date +%s); elapsed=$((now - start)); [ "$elapsed" -gt 10 ] && afplay /System/Library/Sounds/Glass.aiff
+
+UserPromptSubmit:
+  1. date +%s > /tmp/claude-turn-start — async (records turn start time for notification sound)
 
 SessionEnd:
   1. hook_sync.py — async, timeout 10000ms (Windows: pythonw.exe)
