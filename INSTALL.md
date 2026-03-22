@@ -46,6 +46,7 @@ Hooks to add:
 Stop:
   1. hook_sync.py — async, timeout 30000ms (Windows: pythonw.exe)
   2. quiz_check.py — timeout 5000ms (Windows: python.exe)
+  3. afplay /System/Library/Sounds/Glass.aiff — async (macOS only, skip on other platforms)
 
 SessionEnd:
   1. hook_sync.py — async, timeout 10000ms (Windows: pythonw.exe)
