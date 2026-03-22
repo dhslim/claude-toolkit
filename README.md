@@ -102,9 +102,9 @@ alias cread='claude -c --fork-session'   # fork-continue latest session (for rea
 **Rule: Always close fork sessions with Ctrl+C to avoid creating duplicate sessions.**
 
 ### Notification sound (macOS)
-- Plays Glass sound when a turn takes longer than 10 seconds
+- Plays Glass sound when a turn takes longer than 30 seconds
 - `UserPromptSubmit` hook records turn start time to `/tmp/claude-turn-start`
-- `Stop` hook checks elapsed time and plays sound only if > 10s
+- `Stop` hook checks elapsed time and plays sound only if > 30s
 - Short turns (active chatting) produce no sound — avoids annoyance when focused
 
 ### Quiz triggers on Stop only
