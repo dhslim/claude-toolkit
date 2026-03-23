@@ -87,7 +87,7 @@ Use the absolute path to this repo's directory and the venv python path (platfor
 - Scripts: `<absolute path to this repo>` (Python, venv at `.venv/`)
 - Connection: uses `MONGODB_URI` from `<absolute path to this repo>/.env`
 - Database: `conversation-warehouse`
-- To query: `cd` to the scripts directory and use the venv python with `from _shared import get_db`.
+- To query: `cd` to the scripts directory and use the venv python with `from _shared import get_db; client, db = get_db()` (returns tuple, not just db).
 - Schema and collections are documented in the repo's README.md.
 ```
 
