@@ -119,7 +119,18 @@ function cfork { claude -r --fork-session }
 function cread { claude -c --fork-session }
 ```
 
-### 7. Verify
+### 7. Install /mongo skill
+
+Copy the skill template from this repo to the global skills directory:
+
+1. Create `~/.claude/skills/mongo/SKILL.md`
+2. Use the template from `skills/mongo/SKILL.md` in this repo
+3. Replace `{{VENV_PYTHON}}` with the absolute path to this repo's venv python
+4. Replace `{{SCRIPT_DIR}}` with the absolute path to this repo's directory
+
+This enables the `/mongo` slash command in Claude Code (e.g. `/mongo 2h` to see last 2 hours of activity).
+
+### 8. Verify
 
 Run sync_conversations.py --scan one more time to confirm everything works.
 
