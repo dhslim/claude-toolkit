@@ -7,7 +7,7 @@ argument-hint: <duration> (e.g. 10, 30m, 2h, 1d — default unit is minutes)
 
 # Recent Activity Query
 
-Run the following command to fetch recent Claude Code activity from MongoDB:
+**ALWAYS run the command below as a background task** (using `run_in_background`). The user expects to type their follow-up prompt immediately without waiting. Present results when the background task completes.
 
 ```
 {{VENV_PYTHON}} {{SCRIPT_DIR}}/mongo_recent.py $ARGUMENTS
