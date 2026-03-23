@@ -108,7 +108,7 @@ alias cread='claude -c --fork-session'   # fork-continue latest session (for rea
 - Plays a notification sound when a turn takes longer than 30 seconds
 - `hook_turn_start.py` (UserPromptSubmit) records turn start time to `~/.claude/turn-start`
 - `hook_notify.py` (Stop) checks elapsed time and plays sound only if > 30s
-- macOS: Glass.aiff, Windows: system beep, Linux/SSH: terminal bell
+- macOS: Glass.aiff, Windows: custom notify.wav. Linux/SSH not supported (no audio output)
 - Short turns (active chatting) produce no sound — avoids annoyance when focused
 
 ### Quiz triggers on Stop only

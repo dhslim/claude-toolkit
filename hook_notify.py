@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Stop hook — plays a notification sound if the turn took longer than 30s.
 
-Cross-platform:
+Supported platforms:
   - macOS: afplay Glass sound
-  - Windows: Windows Proximity Notification sound
-  - Linux/SSH: BEL character (terminal bell)
+  - Windows: custom notify.wav
 """
 
 import platform

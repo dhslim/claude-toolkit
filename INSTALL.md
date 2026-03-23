@@ -48,7 +48,7 @@ Stop:
   2. quiz_check.py — timeout 5000ms (Windows: python.exe)
   3. hook_notify.py — async (Windows: pythonw.exe)
      Cross-platform notification sound when turn takes >30s.
-     macOS: Glass.aiff, Windows: system beep, Linux/SSH: terminal bell.
+     macOS: Glass.aiff, Windows: custom notify.wav. Linux/SSH not supported (no audio output).
 
 UserPromptSubmit:
   1. hook_turn_start.py — async (Windows: pythonw.exe)
