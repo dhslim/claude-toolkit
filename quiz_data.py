@@ -37,22 +37,25 @@ def main():
                 print('No recent sessions found for quiz generation.')
                 sys.exit(0)
 
-        # Extract conversation content (user/assistant text only, 50K char limit)
-        chunks = []
-        total_chars = 0
-        max_chars = 50000
+        # Extract conversation content (user/assistant text only)
+        # 200K total, distributed evenly across sessions so no single session dominates
+        max_chars = 200000
+        per_session_budget = max_chars // max(len(sessions), 1)
 
+        all_chunks = []
         for session in sessions:
-            if total_chars >= max_chars:
-                break
             date_str = ''
             sd = session.get('session_date')
             if sd:
                 date_str = sd.strftime('%Y-%m-%d') if hasattr(sd, 'strftime') else str(sd)[:10]
-            chunks.append(f'\n--- Session: {session.get("project", "?")} ({date_str}) ---\n')
+
+            device = session.get('device', '?')
+            header = f'\n--- Session: {session.get("project", "?")} [{device}] ({date_str}) ---\n'
+            session_chunks = [header]
+            session_chars = 0
 
             for msg in session.get('messages') or []:
-                if total_chars >= max_chars:
+                if session_chars >= per_session_budget:
                     break
                 if msg.get('role') not in ('user', 'assistant'):
                     continue
@@ -70,11 +73,13 @@ def main():
                 if text:
                     prefix = 'User' if msg['role'] == 'user' else 'Claude'
                     truncated = text[:1000]
-                    chunks.append(f'[{prefix}]: {truncated}')
-                    total_chars += len(truncated)
+                    session_chunks.append(f'[{prefix}]: {truncated}')
+                    session_chars += len(truncated)
+
+            all_chunks.extend(session_chunks)
 
         print(f'Found {len(sessions)} sessions from yesterday.')
-        print('\n'.join(chunks))
+        print('\n'.join(all_chunks))
 
     except Exception as e:
         print(f'Failed to fetch quiz data: {e}', file=sys.stderr)
