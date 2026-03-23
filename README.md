@@ -27,6 +27,7 @@ claude-toolkit/
 ├── daily_quiz.py          # Standalone quiz data fetcher (supports --date arg)
 ├── hook_notify.py         # Stop hook — cross-platform notification sound (>30s turns)
 ├── hook_turn_start.py     # UserPromptSubmit hook — records turn start timestamp
+├── mongo_recent.py        # Query recent activity across all machines (/mongo skill)
 ├── _shared.py             # Shared utilities (DB connection, retry, KST timezone)
 ├── requirements.txt       # pymongo, python-dotenv
 ├── .env.example
@@ -132,6 +133,22 @@ alias cread='claude -c --fork-session'   # fork-continue latest session (for rea
 - Non-blocking — background agent prepares while user shares their task
 - Once per day — global markers in MongoDB prevent repeats across machines
 - Local file cache ensures near-zero latency on repeated checks
+
+## `/mongo` Skill — Recent Activity Viewer
+
+Custom Claude Code slash command to query recent activity across all machines.
+
+```
+/mongo 10      # last 10 minutes (default unit)
+/mongo 2h      # last 2 hours
+/mongo 1d      # last 1 day
+```
+
+- Queries MongoDB for sessions with recent `synced_at`, then filters messages by timestamp
+- Returns data across all devices (Mac, Windows, GPU servers, SSH sessions)
+- Claude summarizes the results: projects, topics, decisions, code changes
+- Skill file: `~/.claude/skills/mongo/SKILL.md`
+- Query script: `mongo_recent.py`
 
 ## MongoDB Schema
 
