@@ -123,8 +123,8 @@ alias cread='claude -c --fork-session'   # fork-continue latest session (for rea
 ### Flow
 1. `quiz_check.py` runs on Stop hook (after each Claude response)
 2. If today's quiz not taken or dismissed → injects quiz instructions into Claude context
-3. Claude runs `quiz_data.py` to fetch yesterday's conversations
-4. Claude generates 10 questions, saves via `quiz_save.py`
+3. Claude runs `quiz_data.py` to fetch yesterday's conversations (200K char budget, evenly distributed across sessions)
+4. Claude generates 10 questions, saves via `quiz_save.py` (choices auto-shuffled to prevent answer position bias)
 5. User answers, Claude pipes answers to `quiz_grade.py` which grades, saves score, and marks complete atomically
 6. Same-day restarts skip the quiz (user can also dismiss with "skip quiz")
 
@@ -133,6 +133,8 @@ alias cread='claude -c --fork-session'   # fork-continue latest session (for rea
 - Non-blocking — background agent prepares while user shares their task
 - Once per day — global markers in MongoDB prevent repeats across machines
 - Local file cache ensures near-zero latency on repeated checks
+- Even session coverage — 200K char budget split equally so no single session dominates
+- Answer randomization — `quiz_save.py` shuffles choice order to eliminate LLM position bias
 
 ## `/mongo` Skill — Recent Activity Viewer
 
@@ -144,6 +146,7 @@ Custom Claude Code slash command to query recent activity across all machines.
 /mongo 1d      # last 1 day
 ```
 
+- Always runs as a background task — type your follow-up prompt immediately
 - Queries MongoDB for sessions with recent `synced_at`, then filters messages by timestamp
 - Returns data across all devices (Mac, Windows, GPU servers, SSH sessions)
 - Claude summarizes the results: projects, topics, decisions, code changes
