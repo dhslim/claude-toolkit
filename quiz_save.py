@@ -54,7 +54,11 @@ def main():
             'graded': False,
         }
         result = db['daily-quizzes'].insert_one(doc)
-        print(f'Quiz saved: {result.inserted_id}')
+        output = {
+            'quiz_id': str(result.inserted_id),
+            'questions': questions,
+        }
+        print(json.dumps(output, ensure_ascii=False))
     except Exception as e:
         print(f'Failed to save quiz: {e}', file=sys.stderr)
         sys.exit(1)
