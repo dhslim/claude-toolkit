@@ -2,10 +2,31 @@
 """Save generated quiz JSON from stdin to MongoDB."""
 
 import json
+import random
 import sys
 from datetime import datetime, timezone
 
 from _shared import get_db, today_kst
+
+LABELS = ['A', 'B', 'C', 'D']
+
+
+def shuffle_choices(question):
+    """Randomize choice order so the correct answer isn't always B."""
+    choices = question.get('choices', [])
+    answer = question.get('answer', '').strip().upper()
+    if len(choices) != 4 or answer not in LABELS:
+        return question
+
+    correct_idx = LABELS.index(answer)
+    # Strip existing A)/B)/C)/D) prefixes
+    texts = [c.split(')', 1)[-1].strip() if ')' in c[:3] else c for c in choices]
+    correct_text = texts[correct_idx]
+
+    random.shuffle(texts)
+    new_correct_idx = texts.index(correct_text)
+    new_choices = [f'{LABELS[i]}) {texts[i]}' for i in range(4)]
+    return {**question, 'choices': new_choices, 'answer': LABELS[new_correct_idx]}
 
 
 def main():
@@ -20,12 +41,14 @@ def main():
         print(f'Invalid JSON: {e}', file=sys.stderr)
         sys.exit(1)
 
+    questions = [shuffle_choices(q) for q in quiz_data.get('questions', [])]
+
     client, db = get_db()
     try:
         doc = {
             'date': today_kst(),
             'created_at': datetime.now(timezone.utc),
-            'questions': quiz_data.get('questions', []),
+            'questions': questions,
             'answers': quiz_data.get('answers'),
             'score': quiz_data.get('score'),
             'graded': False,
