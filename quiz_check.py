@@ -81,6 +81,8 @@ Steps:
    **1.** Question text?
    A) Option 1 · B) Option 2 · C) Option 3 · D) Option 4
 6. Wait for the user to answer.
+   When showing an example answer format, use a generic pattern like "A B C D A B C D A B".
+   NEVER construct the example from the actual answer key — it leaks the correct answers.
 7. Grade by piping the user's answers as JSON to stdin:
    echo '{{"quiz_id": "<_id from the saved quiz>", "answers": ["B", "C", "A", ...]}}' | {VENV_PYTHON} {SCRIPT_DIR}/quiz_grade.py
    This grades the quiz, saves the score to MongoDB, and marks the quiz as complete — all in one step.
