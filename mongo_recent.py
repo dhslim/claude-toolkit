@@ -59,6 +59,8 @@ def main():
     cutoff = datetime.now(timezone.utc) - duration
 
     client, db = get_db()
+    # synced_at 인덱스 확인 및 생성 (sort 메모리 제한 방지)
+    db['sessions'].create_index('synced_at')
     sessions = list(db['sessions'].find({
         'synced_at': {'$gte': cutoff}
     }).sort('synced_at', -1))
