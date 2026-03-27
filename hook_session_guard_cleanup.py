@@ -7,17 +7,71 @@ This prevents cfork/cread sessions from deleting the original session's lock.
 
 import json
 import os
+import platform
 import sys
 from pathlib import Path
 
+IS_WINDOWS = platform.system() == 'Windows'
+
 LOCK_DIR = Path.home() / '.claude' / 'session-locks'
+
+if IS_WINDOWS:
+    import ctypes
+    import ctypes.wintypes
+
+    TH32CS_SNAPPROCESS = 0x00000002
+    MAX_PATH = 260
+
+    class PROCESSENTRY32(ctypes.Structure):
+        _fields_ = [
+            ('dwSize', ctypes.wintypes.DWORD),
+            ('cntUsage', ctypes.wintypes.DWORD),
+            ('th32ProcessID', ctypes.wintypes.DWORD),
+            ('th32DefaultHeapID', ctypes.POINTER(ctypes.c_ulong)),
+            ('th32ModuleID', ctypes.wintypes.DWORD),
+            ('cntThreads', ctypes.wintypes.DWORD),
+            ('th32ParentProcessID', ctypes.wintypes.DWORD),
+            ('pcPriClassBase', ctypes.c_long),
+            ('dwFlags', ctypes.wintypes.DWORD),
+            ('szExeFile', ctypes.c_char * MAX_PATH),
+        ]
+
+    kernel32 = ctypes.windll.kernel32
+
+    def _win_get_process_info(pid):
+        """Get (parent_pid, exe_name) for a given PID using snapshot."""
+        snapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+        if snapshot == -1:
+            return None, None
+        try:
+            entry = PROCESSENTRY32()
+            entry.dwSize = ctypes.sizeof(PROCESSENTRY32)
+            if not kernel32.Process32First(snapshot, ctypes.byref(entry)):
+                return None, None
+            while True:
+                if entry.th32ProcessID == pid:
+                    name = entry.szExeFile.decode('utf-8', errors='replace').lower()
+                    return entry.th32ParentProcessID, name
+                if not kernel32.Process32Next(snapshot, ctypes.byref(entry)):
+                    break
+        finally:
+            kernel32.CloseHandle(snapshot)
+        return None, None
 
 
 def _find_claude_ancestor() -> int | None:
     """Walk up the process tree to find the claude process."""
     try:
         pid = os.getpid()
-        if Path('/proc/self/stat').exists():
+        if IS_WINDOWS:
+            for _ in range(15):
+                ppid, name = _win_get_process_info(pid)
+                if ppid is None or ppid <= 1:
+                    break
+                if name == 'claude.exe':
+                    return ppid
+                pid = ppid
+        elif Path('/proc/self/stat').exists():
             for _ in range(10):
                 pid = int(Path(f'/proc/{pid}/stat').read_text().split()[3])
                 if pid <= 1:
