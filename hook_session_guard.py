@@ -129,10 +129,10 @@ def _find_claude_ancestor():
                     break
                 if name == 'claude.exe':
                     # Only fetch cmdline when we find claude (one subprocess call max)
-                    cmdline = _win_get_cmdline(ppid)
+                    cmdline = _win_get_cmdline(pid)
                     if '--type=' not in cmdline:
                         args = cmdline.split() if cmdline else []
-                        return ppid, args
+                        return pid, args
                 pid = ppid
         elif Path('/proc/self/stat').exists():
             # Linux: use /proc for fast lookups
