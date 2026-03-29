@@ -77,6 +77,8 @@ Steps:
    Multiple quizzes per day are allowed — each save creates a new document, never overwrites.
    Return the full list of questions and answers in the agent result.
 5. When the background agent completes, present ALL 10 questions at once in a numbered list.
+   Always include today's date in the title, e.g.: "## Daily Quiz - 2026-03-30"
+   This prevents confusion with leftover quizzes from earlier in a long session.
    Use compact one-line format for choices, e.g.:
    **1.** Question text?
    A) Option 1 · B) Option 2 · C) Option 3 · D) Option 4
