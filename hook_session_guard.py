@@ -99,8 +99,12 @@ def _pid_alive(pid: int) -> bool:
     if IS_WINDOWS:
         handle = kernel32.OpenProcess(SYNCHRONIZE, False, pid)
         if handle:
+            # OpenProcess can succeed on zombie handles held by parent processes.
+            # WaitForSingleObject with timeout 0: returns 0 (WAIT_OBJECT_0) if
+            # the process has exited, 258 (WAIT_TIMEOUT) if still running.
+            result = kernel32.WaitForSingleObject(handle, 0)
             kernel32.CloseHandle(handle)
-            return True
+            return result == 258  # WAIT_TIMEOUT means still alive
         return False
     try:
         os.kill(pid, 0)
