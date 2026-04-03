@@ -13,11 +13,19 @@ Use absolute paths for all commands and hook configurations.
 
 Follow these steps exactly:
 
-### 1. Python venv and dependencies
+### 1. Install jq (required for status line)
+
+The status line script requires `jq` to parse JSON. Check if it's installed (`jq --version`). If not, install it:
+
+- **Windows:** `winget install jqlang.jq`
+- **macOS:** `brew install jq`
+- **Linux:** `sudo apt install jq` (or equivalent for your distro)
+
+### 2. Python venv and dependencies
 
 Create a Python virtual environment in this directory and install dependencies from requirements.txt.
 
-### 2. Create .env
+### 3. Create .env
 
 If .env does not already exist in this directory, ask me for my MongoDB URI, then create .env with:
 
@@ -25,13 +33,13 @@ If .env does not already exist in this directory, ask me for my MongoDB URI, the
 
 If .env already exists, skip this step.
 
-### 3. Test the connection
+### 4. Test the connection
 
 Run sync_conversations.py --scan using the venv python to verify MongoDB connectivity.
 
 If it fails with a TLS/SSL error, the Python or OpenSSL version may be too old. Upgrade Python to 3.10+ and retry.
 
-### 4. Configure ~/.claude/settings.json
+### 5. Configure ~/.claude/settings.json
 
 Read `settings.json` from this repo as a reference. It contains the complete structure including hooks, permissions, status line config, and other settings.
 
@@ -47,13 +55,13 @@ On macOS/Linux use the single `python` executable in `.venv/bin/`.
 
 Preserve any existing settings in ~/.claude/settings.json that are not in the reference file.
 
-### 5. Install status line
+### 6. Install status line
 
 Copy `statusline.sh` from this repo to `~/.claude/statusline.sh` and make it executable (`chmod +x`).
 
 The settings.json already references this path via `~/.claude/statusline.sh`.
 
-### 6. Update global CLAUDE.md
+### 7. Update global CLAUDE.md
 
 Read ~/.claude/CLAUDE.md (create it if it doesn't exist). If there is no "MongoDB Atlas" section, append the following block. If there is one, update it to match. Preserve all other existing content.
 
@@ -69,7 +77,7 @@ Use the absolute path to this repo's directory and the venv python path (platfor
 - Schema and collections are documented in the repo's README.md.
 ```
 
-### 7. Add shell aliases
+### 8. Add shell aliases
 
 Add the following aliases if not already present.
 
@@ -97,7 +105,7 @@ function cfork { claude -r --fork-session }
 function cread { claude -c --fork-session }
 ```
 
-### 8. Install /mongo skill
+### 9. Install /mongo skill
 
 Copy the skill template from this repo to the global skills directory:
 
@@ -108,7 +116,7 @@ Copy the skill template from this repo to the global skills directory:
 
 This enables the `/mongo` slash command in Claude Code (e.g. `/mongo 2h` to see last 2 hours of activity).
 
-### 9. Verify
+### 10. Verify
 
 Run sync_conversations.py --scan one more time to confirm everything works.
 
