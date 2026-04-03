@@ -91,9 +91,11 @@ Steps:
    The script returns JSON with score, total, and per-question results (including correct answers).
    Show the user their score and explain any wrong answers using the returned data.
 
-If the user says "skip quiz", "not now", or "no quiz today", run:
+ONLY dismiss the quiz if the user EXPLICITLY says one of these exact phrases: "skip quiz", "no quiz today", or "dismiss quiz".
+Do NOT dismiss based on indirect hints, casual remarks, or anything ambiguous. If unsure, ask the user directly: "Would you like to skip today's quiz?"
+To dismiss, run:
    {VENV_PYTHON} {SCRIPT_DIR}/quiz_dismiss.py
-This dismisses the quiz for today. Respect their choice and move on.
+This dismisses the quiz for today.
 
 Keep it quick and fun."""
 

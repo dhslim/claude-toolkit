@@ -31,51 +31,29 @@ Run sync_conversations.py --scan using the venv python to verify MongoDB connect
 
 If it fails with a TLS/SSL error, the Python or OpenSSL version may be too old. Upgrade Python to 3.10+ and retry.
 
-### 4. Add hooks to ~/.claude/settings.json
+### 4. Configure ~/.claude/settings.json
 
-Read the existing ~/.claude/settings.json (create it if it doesn't exist). Merge the following hooks into the "hooks" key, preserving any existing hooks that are already there.
+Read `settings.json` from this repo as a reference. It contains the complete structure including hooks, permissions, status line config, and other settings.
 
-For hook commands, use the absolute path to the venv python and the absolute path to each script.
+Create or update `~/.claude/settings.json` to match the structure in the reference file, but **replace all hardcoded paths** with absolute paths appropriate for the current machine:
+- Replace all python/pythonw paths with the absolute path to the venv python in this repo
+- Replace all script paths with the absolute path to each script in this repo
 
 On Windows there are two python executables in the venv:
 - pythonw.exe — runs without opening a console window (use for background/async hooks)
 - python.exe — runs with stdout visible (use when Claude needs to read the hook's output)
 
-Hooks to add:
+On macOS/Linux use the single `python` executable in `.venv/bin/`.
 
-Stop:
-  1. hook_sync.py — async, timeout 30000ms (Windows: pythonw.exe)
-  2. quiz_check.py — timeout 5000ms (Windows: python.exe)
-  3. hook_notify.py — async (Windows: pythonw.exe)
-     Cross-platform notification sound when turn takes >30s.
-     macOS: Glass.aiff, Windows: custom notify.wav. Linux/SSH not supported (no audio output).
+Preserve any existing settings in ~/.claude/settings.json that are not in the reference file.
 
-UserPromptSubmit:
-  1. hook_turn_start.py — async (Windows: pythonw.exe)
-     Records turn start timestamp for the notification sound hook.
+### 5. Install status line
 
-SessionEnd:
-  1. hook_sync.py — async, timeout 10000ms (Windows: pythonw.exe)
-  2. hook_session_guard_cleanup.py — async, timeout 5000ms (Windows: pythonw.exe)
+Copy `statusline.sh` from this repo to `~/.claude/statusline.sh` and make it executable (`chmod +x`).
 
-SessionStart:
-  1. hook_session_guard.py — timeout 5000ms (Windows: python.exe)
-  2. sync_conversations.py --scan — async, timeout 60000ms (Windows: pythonw.exe)
+The settings.json already references this path via `~/.claude/statusline.sh`.
 
-The hooks JSON structure for each entry is:
-{
-  "matcher": "",
-  "hooks": [{
-    "type": "command",
-    "command": "<full command string>",
-    "async": true,
-    "timeout": <ms>
-  }]
-}
-
-Only include "async": true when specified above. Omit it otherwise.
-
-### 5. Update global CLAUDE.md
+### 6. Update global CLAUDE.md
 
 Read ~/.claude/CLAUDE.md (create it if it doesn't exist). If there is no "MongoDB Atlas" section, append the following block. If there is one, update it to match. Preserve all other existing content.
 
@@ -91,7 +69,7 @@ Use the absolute path to this repo's directory and the venv python path (platfor
 - Schema and collections are documented in the repo's README.md.
 ```
 
-### 6. Add shell aliases
+### 7. Add shell aliases
 
 Add the following aliases if not already present.
 
@@ -119,7 +97,7 @@ function cfork { claude -r --fork-session }
 function cread { claude -c --fork-session }
 ```
 
-### 7. Install /mongo skill
+### 8. Install /mongo skill
 
 Copy the skill template from this repo to the global skills directory:
 
@@ -130,7 +108,7 @@ Copy the skill template from this repo to the global skills directory:
 
 This enables the `/mongo` slash command in Claude Code (e.g. `/mongo 2h` to see last 2 hours of activity).
 
-### 8. Verify
+### 9. Verify
 
 Run sync_conversations.py --scan one more time to confirm everything works.
 

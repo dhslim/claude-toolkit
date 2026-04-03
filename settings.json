@@ -1,0 +1,87 @@
+{
+  "permissions": {
+    "defaultMode": "bypassPermissions"
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:/Users/user/Desktop/claude-toolkit/.venv/Scripts/pythonw.exe C:/Users/user/Desktop/claude-toolkit/hook_sync.py",
+            "timeout": 30000,
+            "async": true
+          },
+          {
+            "type": "command",
+            "command": "C:/Users/user/Desktop/claude-toolkit/.venv/Scripts/python.exe C:/Users/user/Desktop/claude-toolkit/quiz_check.py",
+            "timeout": 5000
+          },
+          {
+            "type": "command",
+            "command": "C:/Users/user/Desktop/claude-toolkit/.venv/Scripts/pythonw.exe C:/Users/user/Desktop/claude-toolkit/hook_notify.py",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:/Users/user/Desktop/claude-toolkit/.venv/Scripts/pythonw.exe C:/Users/user/Desktop/claude-toolkit/hook_turn_start.py",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:/Users/user/Desktop/claude-toolkit/.venv/Scripts/pythonw.exe C:/Users/user/Desktop/claude-toolkit/hook_sync.py",
+            "timeout": 10000,
+            "async": true
+          },
+          {
+            "type": "command",
+            "command": "C:/Users/user/Desktop/claude-toolkit/.venv/Scripts/pythonw.exe C:/Users/user/Desktop/claude-toolkit/hook_session_guard_cleanup.py",
+            "timeout": 5000,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:/Users/user/Desktop/claude-toolkit/.venv/Scripts/python.exe C:/Users/user/Desktop/claude-toolkit/hook_session_guard.py",
+            "timeout": 5000
+          },
+          {
+            "type": "command",
+            "command": "C:/Users/user/Desktop/claude-toolkit/.venv/Scripts/pythonw.exe C:/Users/user/Desktop/claude-toolkit/sync_conversations.py --scan",
+            "timeout": 60000,
+            "async": true
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/statusline.sh",
+    "padding": 1
+  },
+  "enabledPlugins": {},
+  "autoUpdatesChannel": "latest",
+  "skipDangerousModePermissionPrompt": true
+}
