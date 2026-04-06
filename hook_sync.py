@@ -3,6 +3,9 @@
 
 Used by Stop and SessionEnd hooks. The child process is fully detached
 so the parent hook can exit without waiting for sync to complete.
+
+The child runs via _sync_runner.py which catches errors and logs them
+with proper file locking to avoid concurrent write corruption.
 """
 
 import json
@@ -14,7 +17,7 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 LOG_FILE = SCRIPT_DIR / 'sync.log'
-SYNC_SCRIPT = SCRIPT_DIR / 'sync_conversations.py'
+RUNNER_SCRIPT = SCRIPT_DIR / '_sync_runner.py'
 
 # Determine venv python path
 if sys.platform == 'win32':
@@ -38,12 +41,10 @@ def main():
         sid = (hook.get('session_id') or '?')[:8]
 
         if tp:
-            log_fd = os.open(str(LOG_FILE), os.O_WRONLY | os.O_CREAT | os.O_APPEND)
-
             kwargs = {
                 'stdin': subprocess.DEVNULL,
-                'stdout': log_fd,
-                'stderr': log_fd,
+                'stdout': subprocess.DEVNULL,
+                'stderr': subprocess.DEVNULL,
             }
 
             if sys.platform == 'win32':
@@ -54,12 +55,11 @@ def main():
                 kwargs['start_new_session'] = True
 
             proc = subprocess.Popen(
-                [PYTHON, str(SYNC_SCRIPT), '--file', tp],
+                [PYTHON, str(RUNNER_SCRIPT), '--file', tp, '--sid', sid],
                 **kwargs,
             )
             # Don't wait for child
             log(f'{event} -> {sid} sync started (pid {proc.pid})')
-            os.close(log_fd)
     except Exception as e:
         log(f'ERROR: {e}')
 
