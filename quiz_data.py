@@ -3,7 +3,7 @@
 
 import io
 import sys
-from datetime import timedelta
+from datetime import timedelta, timezone
 
 # Ensure stdout is UTF-8 on Windows
 if sys.stdout.encoding != 'utf-8':
@@ -15,49 +15,47 @@ from _shared import get_db, now_kst
 def main():
     now = now_kst()
     yesterday = now - timedelta(days=1)
-    y_str = yesterday.strftime('%Y-%m-%d')
     start = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
     end = yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
 
+    # Convert KST boundaries to UTC for message timestamp comparison
+    start_utc = start.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
+    end_utc = end.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
+
     client, db = get_db()
     try:
+        # Find sessions that have at least one message within yesterday (KST).
+        # session_date is session start time, but messages have their own timestamps.
+        # A session started days ago may still have messages from yesterday.
+        # We cast a wider net on sessions, then filter messages by timestamp.
+        three_days_ago = now - timedelta(days=3)
+        td_start = three_days_ago.replace(hour=0, minute=0, second=0, microsecond=0)
         sessions = list(db['sessions'].find({
-            'session_date': {'$gte': start, '$lte': end}
+            'session_date': {'$gte': td_start, '$lte': end}
         }))
 
         if not sessions:
-            # Fall back to last 3 days
-            three_days_ago = now - timedelta(days=3)
-            td_start = three_days_ago.replace(hour=0, minute=0, second=0, microsecond=0)
-            sessions = list(db['sessions'].find({
-                'session_date': {'$gte': td_start, '$lte': end}
-            }).sort('session_date', -1).limit(5))
+            print('No recent sessions found for quiz generation.')
+            sys.exit(0)
 
-            if not sessions:
-                print('No recent sessions found for quiz generation.')
-                sys.exit(0)
-
-        # Extract conversation content (user/assistant text only)
-        # 200K total, distributed evenly across sessions so no single session dominates
+        # Extract conversation content — only messages whose timestamp falls within yesterday (KST)
         max_chars = 200000
-        per_session_budget = max_chars // max(len(sessions), 1)
-
         all_chunks = []
-        for session in sessions:
-            date_str = ''
-            sd = session.get('session_date')
-            if sd:
-                date_str = sd.strftime('%Y-%m-%d') if hasattr(sd, 'strftime') else str(sd)[:10]
+        total_msg_count = 0
 
+        for session in sessions:
             device = session.get('device', '?')
-            header = f'\n--- Session: {session.get("project", "?")} [{device}] ({date_str}) ---\n'
-            session_chunks = [header]
+            project = session.get('project', '?')
+            session_chunks = []
             session_chars = 0
 
             for msg in session.get('messages') or []:
-                if session_chars >= per_session_budget:
-                    break
                 if msg.get('role') not in ('user', 'assistant'):
+                    continue
+
+                # Filter by message timestamp (ISO 8601 string, UTC)
+                ts = msg.get('timestamp', '')
+                if not ts or ts < start_utc or ts > end_utc:
                     continue
 
                 content = msg.get('content', '')
@@ -75,11 +73,22 @@ def main():
                     truncated = text[:1000]
                     session_chunks.append(f'[{prefix}]: {truncated}')
                     session_chars += len(truncated)
+                    total_msg_count += 1
 
-            all_chunks.extend(session_chunks)
+            # Only include sessions that had messages within yesterday
+            if session_chunks:
+                header = f'\n--- Session: {project} [{device}] ---\n'
+                all_chunks.append(header)
+                all_chunks.extend(session_chunks)
 
-        print(f'Found {len(sessions)} sessions from yesterday.')
-        print('\n'.join(all_chunks))
+        # Budget enforcement: trim to max_chars
+        output = '\n'.join(all_chunks)
+        if len(output) > max_chars:
+            output = output[:max_chars]
+
+        session_count = sum(1 for c in all_chunks if c.startswith('\n--- Session'))
+        print(f'Found {total_msg_count} messages from yesterday across {session_count} sessions.')
+        print(output)
 
     except Exception as e:
         print(f'Failed to fetch quiz data: {e}', file=sys.stderr)
