@@ -220,3 +220,12 @@ tail -20 sync.log
 # Manual full sync (from repo directory, using venv python)
 .venv/bin/python sync_conversations.py --scan
 ```
+
+## Documentation
+
+In-depth references for Claude Code internals discovered while building and using the toolkit:
+
+- **[`docs/sessions.md`](docs/sessions.md)** — Claude Code session storage on disk: where JSONLs live, the JSONL line format, the dual filesystem-location/per-line-`cwd` binding, the resume picker filter rules, per-worktree branch-detection quirks, and the full transplant checklist that powers `/transplant`.
+- **[`docs/scrollback.md`](docs/scrollback.md)** — Claude Code's fullscreen rendering, the `CLAUDE_CODE_NO_FLICKER` env var, the alt-buffer scrollback bypass, and the workflow for actually scrolling back through long conversations: `Ctrl+Home` for in-viewport navigation (the simple answer) and `Ctrl+O → [` for dumping to native terminal scrollback (the power-user move). Includes a complete reference of interactive-mode keyboard shortcuts.
+- **[`docs/hacks.md`](docs/hacks.md)** — quick-reference hacks (older manual session-import approach, etc.).
+- **[`docs/quiz-considerations.md`](docs/quiz-considerations.md)** — daily quiz design notes.

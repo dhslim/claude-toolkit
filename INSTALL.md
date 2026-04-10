@@ -127,7 +127,50 @@ Copy the skill template from this repo to the global skills directory:
 
 This enables the `/transplant` slash command in Claude Code, which clones a session JSONL from one working directory into another (e.g. `/transplant <source.jsonl> <target-dir>`). The script lives at `session_transplant.py` in this repo.
 
-### 11. Verify
+### 11. Recommended environment variable
+
+Add `CLAUDE_CODE_NO_FLICKER=1` to the `env` block in `~/.claude/settings.json`. This is the default behavior since Claude Code v2.1.89, but setting it explicitly future-proofs against the default ever flipping. It enables fullscreen rendering and the in-app `Ctrl+O → [` history-dump trick.
+
+```json
+{
+  "env": {
+    "CLAUDE_CODE_NO_FLICKER": "1"
+  }
+}
+```
+
+See `docs/scrollback.md` in this repo for the full explanation of fullscreen mode, scrollback behavior, and the `Ctrl+Home` / `Ctrl+O` navigation workflow.
+
+### 12. Recommended VS Code terminal settings
+
+If using Claude Code via VS Code's integrated terminal, add the following to your VS Code user settings (`%APPDATA%\Code\User\settings.json` on Windows, `~/.config/Code/User/settings.json` on Linux, `~/Library/Application Support/Code/User/settings.json` on Mac):
+
+```json
+{
+  "terminal.integrated.scrollback": 250000,
+  "terminal.integrated.persistentSessionScrollback": 250000,
+  "terminal.integrated.gpuAcceleration": "canvas"
+}
+```
+
+| Setting | Why |
+|---|---|
+| `scrollback: 250000` | Default 1000 is too small for any long Claude session. 250k uses ~40 MB per terminal max. Buffer grows lazily — no upfront cost. |
+| `persistentSessionScrollback: 250000` | Default 100. Without this, scrollback shrinks to 100 lines on every VS Code window reload. Match it to `scrollback`. |
+| `gpuAcceleration: "canvas"` | Default `"auto"` (WebGL) has lazy/batched repaints that cause `Ctrl+End` to require a follow-up keystroke to render. Canvas does immediate-mode painting which is more responsive. Costs almost nothing on modern hardware. |
+
+Also recommended: globally unbind `Ctrl+O` in VS Code's `keybindings.json` so it passes through to Claude Code's terminal (otherwise VS Code intercepts it as "Open File" and the in-app `Ctrl+O → [` trick won't work):
+
+```json
+[
+  {
+    "key": "ctrl+o",
+    "command": "-workbench.action.files.openFile"
+  }
+]
+```
+
+### 13. Verify
 
 Run sync_conversations.py --scan one more time to confirm everything works.
 
