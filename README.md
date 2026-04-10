@@ -28,6 +28,7 @@ claude-toolkit/
 ├── hook_notify.py         # Stop hook — cross-platform notification sound (>30s turns)
 ├── hook_turn_start.py     # UserPromptSubmit hook — records turn start timestamp
 ├── mongo_recent.py        # Query recent activity across all machines (/mongo skill)
+├── session_transplant.py  # Clone a session JSONL into a different cwd (/transplant skill)
 ├── _shared.py             # Shared utilities (DB connection, retry, KST timezone)
 ├── requirements.txt       # pymongo, python-dotenv
 ├── .env.example
@@ -152,6 +153,28 @@ Custom Claude Code slash command to query recent activity across all machines.
 - Claude summarizes the results: projects, topics, decisions, code changes
 - Skill file: `~/.claude/skills/mongo/SKILL.md`
 - Query script: `mongo_recent.py`
+
+## `/transplant` Skill — Session Cloner
+
+Clone a Claude Code session JSONL from one working directory to another, so the cloned session shows up in `claude -r` from the target directory as if it had been created there.
+
+```
+/transplant <source.jsonl> <target-directory>
+```
+
+What it rewrites in the clone:
+- Fresh `sessionId` UUID (zero identity overlap with the source — they coexist)
+- Per-line `cwd` field
+- Per-line `gitBranch` (auto-detected from sibling sessions in the target encoded dir)
+- First user message flattened from list-form to plain string (otherwise the picker hides the session from the default "current worktree" view)
+
+What it leaves alone (intentional):
+- The source file itself — completely untouched
+- Tool result content strings (cosmetic stale paths in transcript)
+- `uuid`, `parentUuid`, `version`, `timestamp` (message-level identity chain)
+
+- Skill file: `~/.claude/skills/transplant/SKILL.md`
+- Script: `session_transplant.py`
 
 ## MongoDB Schema
 

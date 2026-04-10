@@ -4,6 +4,9 @@ __pycache__/
 *.pyc
 .env
 sync.log
+sync.log.lock
+sync_test*.log
+*.stackdump
 excalidraw.log
 last-hook-stdin.json
 quiz-last-shown.txt

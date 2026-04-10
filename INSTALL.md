@@ -116,7 +116,18 @@ Copy the skill template from this repo to the global skills directory:
 
 This enables the `/mongo` slash command in Claude Code (e.g. `/mongo 2h` to see last 2 hours of activity).
 
-### 10. Verify
+### 10. Install /transplant skill
+
+Copy the skill template from this repo to the global skills directory:
+
+1. Create `~/.claude/skills/transplant/SKILL.md`
+2. Use the template from `skills/transplant/SKILL.md` in this repo
+3. Replace `{{VENV_PYTHON}}` with the absolute path to this repo's venv python
+4. Replace `{{SCRIPT_DIR}}` with the absolute path to this repo's directory
+
+This enables the `/transplant` slash command in Claude Code, which clones a session JSONL from one working directory into another (e.g. `/transplant <source.jsonl> <target-dir>`). The script lives at `session_transplant.py` in this repo.
+
+### 11. Verify
 
 Run sync_conversations.py --scan one more time to confirm everything works.
 
