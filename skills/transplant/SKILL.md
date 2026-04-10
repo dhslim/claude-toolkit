@@ -36,6 +36,7 @@ Two positional arguments, in order:
 - Rewrites the per-line `gitBranch` field to match the convention used by sibling sessions in the target encoded project dir (falls back to `git branch --show-current` if no siblings exist)
 - Rewrites the per-line `sessionId` field to the new UUID
 - Flattens the first user message from list-form (e.g. pasted image + text) to a plain string — Claude Code's resume picker hides sessions whose first user message is non-string content from the default "current worktree" view
+- Compacts the pre-user header: keeps only 1 `permission-mode` + 1 `file-history-snapshot` before the first user message, moves excess snapshots after it — the picker scans the first N lines to find the first user message and gives up if too many snapshots precede it
 - Writes the clone to `~/.claude/projects/<encoded-target>/<newSessionId>.jsonl`
 - Leaves the source file completely untouched
 

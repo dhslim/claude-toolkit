@@ -157,6 +157,20 @@ Different worktrees use different `gitBranch` value conventions. Some write the 
 
 **Why the difference exists:** UNVERIFIED. Possibly related to special characters in branch names (`#`), git's detached HEAD behavior, or differences in Claude Code's internal git detection across versions.
 
+### CONFIRMED: First user message must appear within the first few JSONL lines
+
+The picker scans the **first N lines** of the JSONL to find the first user message. If too many `file-history-snapshot` lines precede it (e.g. 80+ snapshots before the first `type: "user"` line), the picker gives up and hides the session from the default view. The session still appears under Ctrl+W (show all worktrees).
+
+**Root cause:** Long-running sessions accumulate many `file-history-snapshot` entries at the top of the JSONL (one per file change Claude monitors). When transplanting such a session, the cloned file preserves all these snapshots in their original position — before the first user message.
+
+**The fix:** Compact the pre-user header during transplant. Keep only 1 `permission-mode` + 1 `file-history-snapshot` before the first user message. Move the excess snapshots after the first user message. `session_transplant.py` now does this automatically.
+
+**Empirical evidence (2026-04-10):**
+- Session with first user at line 81 (80 snapshots before it) → hidden from default view, visible only via Ctrl+W
+- Same session with first user at line 2 (1 snapshot before it) → visible in default view immediately
+- File size irrelevant: 18MB sessions appeared in default view when header was compact
+- Verified across multiple target directories (stt-scheduler, dentalchart-backend2/KT-1690)
+
 ### UNVERIFIED: Other suspected filters
 
 Several sessions in our investigation remained hidden from the default picker even after fixing first user message + branch convention. We could not pin down why. Possibilities (none verified):
@@ -165,7 +179,7 @@ Several sessions in our investigation remained hidden from the default picker ev
 - **First message age** — sessions with `first_msg_ts` older than ~7 days may be filtered.
 - **First-message dedup** — sessions whose first user message text is identical to another (more recent) session may be hidden as the older duplicate.
 
-If you transplant a session and it appears under Ctrl+W but not in the default view, the most likely culprit is one of the above — but we don't have a definitive answer. **Open question.**
+If you transplant a session and it appears under Ctrl+W but not in the default view after the snapshot compaction fix, the most likely culprit is one of the above — but we don't have a definitive answer. **Open question.**
 
 ### Hard ~250-line cap on the picker render buffer
 

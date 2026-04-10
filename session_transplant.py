@@ -25,8 +25,13 @@ What it does (minimal mode, non-destructive copy):
        text), flattens it to a plain text string. Sessions whose first user
        message has non-string content are filtered out of the default
        "current worktree" view by Claude Code's resume picker.
-    7. Writes the result to ~/.claude/projects/<encoded-target>/<newSessionId>.jsonl
-    8. Leaves the source file untouched — clone has zero ties to the original
+    7. Compacts the pre-user header: keeps only 1 permission-mode line and
+       1 file-history-snapshot before the first user message. Excess
+       snapshots are moved after the first user message. The picker scans
+       the first N lines to find the first user message — if too many
+       snapshots precede it, the session is hidden from the default view.
+    8. Writes the result to ~/.claude/projects/<encoded-target>/<newSessionId>.jsonl
+    9. Leaves the source file untouched — clone has zero ties to the original
 
 What it does NOT do (intentionally):
     - Rewrite tool_result content strings (stale paths in transcript are cosmetic)
@@ -154,7 +159,8 @@ def transplant(source_file: Path, target_cwd: str) -> Path:
 
     dest_file = target_project_dir / f"{new_session_id}.jsonl"
 
-    rewritten_lines: list[str] = []
+    # --- Phase 1: Read and rewrite all lines ---
+    all_objects: list[dict | str] = []
     cwd_rewrites = 0
     branch_rewrites = 0
     session_id_rewrites = 0
@@ -164,13 +170,12 @@ def transplant(source_file: Path, target_cwd: str) -> Path:
         for line in f:
             line = line.rstrip("\n")
             if not line:
-                rewritten_lines.append("")
+                all_objects.append("")
                 continue
             try:
                 obj = json.loads(line)
             except json.JSONDecodeError:
-                # Keep malformed lines as-is rather than dropping them
-                rewritten_lines.append(line)
+                all_objects.append(line)
                 continue
 
             if isinstance(obj, dict):
@@ -186,7 +191,69 @@ def transplant(source_file: Path, target_cwd: str) -> Path:
                 if not first_user_flattened and flatten_first_user_message(obj):
                     first_user_flattened = True
 
-            rewritten_lines.append(json.dumps(obj, ensure_ascii=False))
+            all_objects.append(obj)
+
+    # --- Phase 2: Compact pre-user header ---
+    # The picker scans the first N lines for the first user message.
+    # If too many file-history-snapshot lines precede it (e.g. 80+),
+    # the picker gives up and hides the session from the default view.
+    # Fix: keep only 1 permission-mode + 1 snapshot before the first
+    # user message; move excess snapshots after it.
+    header: list[dict | str] = []
+    deferred_snapshots: list[dict | str] = []
+    conversation: list[dict | str] = []
+    found_user = False
+    kept_one_perm = False
+    kept_one_snapshot = False
+    snapshots_deferred = 0
+
+    for obj in all_objects:
+        if isinstance(obj, str):
+            # raw string lines (empty or malformed) — keep in place
+            if found_user:
+                conversation.append(obj)
+            else:
+                header.append(obj)
+            continue
+
+        if not found_user:
+            if obj.get("type") == "permission-mode":
+                if not kept_one_perm:
+                    header.append(obj)
+                    kept_one_perm = True
+                else:
+                    deferred_snapshots.append(obj)
+                    snapshots_deferred += 1
+            elif obj.get("type") == "file-history-snapshot":
+                if not kept_one_snapshot:
+                    # Strip sessionId from snapshot (native sessions don't have it)
+                    obj.pop("sessionId", None)
+                    obj.pop("gitBranch", None)
+                    header.append(obj)
+                    kept_one_snapshot = True
+                else:
+                    obj.pop("sessionId", None)
+                    obj.pop("gitBranch", None)
+                    deferred_snapshots.append(obj)
+                    snapshots_deferred += 1
+            else:
+                if obj.get("type") == "user":
+                    found_user = True
+                conversation.append(obj)
+        else:
+            conversation.append(obj)
+
+    # Reassemble: compact header + first user msg + deferred snapshots + rest
+    rewritten_lines: list[str] = []
+    first_user_emitted = False
+    for obj in header:
+        rewritten_lines.append(json.dumps(obj, ensure_ascii=False) if isinstance(obj, dict) else obj)
+    for obj in conversation:
+        rewritten_lines.append(json.dumps(obj, ensure_ascii=False) if isinstance(obj, dict) else obj)
+        if not first_user_emitted and isinstance(obj, dict) and obj.get("type") == "user":
+            first_user_emitted = True
+            for snap in deferred_snapshots:
+                rewritten_lines.append(json.dumps(snap, ensure_ascii=False) if isinstance(snap, dict) else snap)
 
     with dest_file.open("w", encoding="utf-8", newline="\n") as f:
         f.write("\n".join(rewritten_lines))
@@ -203,6 +270,7 @@ def transplant(source_file: Path, target_cwd: str) -> Path:
     print(f"gitBranch rewrites: {branch_rewrites}")
     print(f"sessionId rewrites: {session_id_rewrites}")
     print(f"first user msg flattened: {first_user_flattened}")
+    print(f"snapshots deferred: {snapshots_deferred}")
     print()
     print(f'Next: cd "{target_cwd}" && claude -r')
     return dest_file
