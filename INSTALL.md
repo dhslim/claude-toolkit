@@ -159,6 +159,22 @@ If using Claude Code via VS Code's integrated terminal, add the following to you
 | `persistentSessionScrollback: 250000` | Default 100. Without this, scrollback shrinks to 100 lines on every VS Code window reload. Match it to `scrollback`. |
 | `gpuAcceleration: "canvas"` | Default `"auto"` (WebGL) has lazy/batched repaints that cause `Ctrl+End` to require a follow-up keystroke to render. Canvas does immediate-mode painting which is more responsive. Costs almost nothing on modern hardware. |
 
+Also add these editor settings:
+
+```json
+{
+  "workbench.editor.enablePreview": false,
+  "files.readonlyInclude": {
+    "**/*": true
+  }
+}
+```
+
+| Setting | Why |
+|---|---|
+| `enablePreview: false` | Clicking a file in the sidebar opens it in its own tab instead of replacing the current preview tab. |
+| `files.readonlyInclude: {"**/*": true}` | Opens all files in read-only mode by default (lock icon on tab). Prevents accidental edits. Toggle per-file with `Cmd+Shift+P` → "Toggle File Read-only". |
+
 Also recommended: globally unbind `Ctrl+O` in VS Code's `keybindings.json` so it passes through to Claude Code's terminal (otherwise VS Code intercepts it as "Open File" and the in-app `Ctrl+O → [` trick won't work):
 
 ```json
