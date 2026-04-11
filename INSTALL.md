@@ -189,7 +189,9 @@ Also add these settings to disable VS Code's built-in Copilot/AI features (since
   "github.copilot.chat.enabled": false,
   "github.copilot.completions.enabled": false,
   "github.copilot.nextEditSuggestions.enabled": false,
-  "workbench.secondarySideBar.visible": false
+  "workbench.secondarySideBar.visible": false,
+  "claudeCode.preferredLocation": "terminal",
+  "claudeCode.useTerminal": true
 }
 ```
 
@@ -206,8 +208,10 @@ Also add these settings to disable VS Code's built-in Copilot/AI features (since
 | `github.copilot.completions.enabled: false` | Disables inline code completions. |
 | `github.copilot.nextEditSuggestions.enabled: false` | Disables next-edit predictions. |
 | `workbench.secondarySideBar.visible: false` | Hides the secondary sidebar where the Copilot chat panel lives. |
+| `claudeCode.preferredLocation: "terminal"` | When clicking the Claude Code extension button, opens in the terminal instead of the panel/sidebar. |
+| `claudeCode.useTerminal: true` | Same as above — ensures Claude Code launches in the terminal, not the native UI panel. |
 
-**Note:** Even with all these settings, the Copilot secondary sidebar may still appear when opening a **new folder** for the first time (VS Code stores sidebar visibility in per-workspace state, not settings). If it appears, close it manually once (`Cmd+Shift+P` → "View: Toggle Secondary Side Bar") and VS Code will remember it for that workspace.
+**Note:** Even with all these settings, the Copilot and Claude Code secondary sidebar may still appear when opening a **new folder** for the first time — this is a [known VS Code bug (#247175)](https://github.com/microsoft/vscode/issues/247175). VS Code stores sidebar visibility in per-workspace state, not in settings.json. Close it with `Cmd+Option+B` (Mac) or `Ctrl+Alt+B` (Windows) once per workspace — it stays closed after that.
 
 Also recommended: globally unbind `Ctrl+O` in VS Code's `keybindings.json` so it passes through to Claude Code's terminal (otherwise VS Code intercepts it as "Open File" and the in-app `Ctrl+O → [` trick won't work):
 
