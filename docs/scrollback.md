@@ -99,14 +99,14 @@ In fullscreen mode (`NO_FLICKER=1`), Claude Code provides an in-app way to dump 
 
 | Press | State | What you see |
 |---|---|---|
-| 0 (default) | **Normal prompt** | Input box at bottom, recent messages above, status line. The live working view. |
-| 1 | **Transcript mode** | Full scrollable conversation history with `/` search. No input box. Press `[` here to dump to native scrollback. |
-| 2 | **Focus view** | Just the LAST user message + tool calls + assistant response. Tools shown in full detail. No input box. |
-| 3 (= back to 0) | Normal prompt | |
+| 0 (default) | **Focus view** | Just the LAST user message + tool calls + assistant response. Minimal info. No input box. |
+| 1 | **Normal prompt** | Input box at bottom, recent messages above, status line. Shows "Sautéed for Xs" / "Crunched for Xs" timing messages. The live working view. |
+| 2 | **Transcript mode** | Full scrollable conversation history with `/` search. Most detail — all tool calls expanded. Bottom bar says "Showing detailed transcript". Press `[` here to dump to native scrollback. |
+| 3 (= back to 0) | Focus view | |
 
 ### Dumping history to native scrollback
 
-1. Inside Claude Code, press **`Ctrl+O`** once → enters transcript mode
+1. Inside Claude Code, press **`Ctrl+O`** twice → enters transcript mode (past focus view and normal prompt)
 2. Press **`[`** → Claude walks the entire JSONL message-by-message and prints each one as ANSI-styled text into the normal buffer
 3. Press **`Esc`** to leave transcript mode and return to the live prompt
 4. The normal buffer now contains the entire conversation. Scroll up in your terminal — you can reach the very first message of the session.
