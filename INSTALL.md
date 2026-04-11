@@ -175,6 +175,40 @@ Also add these editor settings:
 | `enablePreview: false` | Clicking a file in the sidebar opens it in its own tab instead of replacing the current preview tab. |
 | `files.readonlyInclude: {"**/*": true}` | Opens all files in read-only mode by default (lock icon on tab). Prevents accidental edits. Toggle per-file with `Cmd+Shift+P` → "Toggle File Read-only". |
 
+Also add these settings to disable VS Code's built-in Copilot/AI features (since we use Claude Code instead):
+
+```json
+{
+  "workbench.startupEditor": "none",
+  "workbench.welcomePage.enabled": false,
+  "chat.disableAIFeatures": true,
+  "chat.commandCenter.enabled": false,
+  "chat.editor.enabled": false,
+  "chat.agent.enabled": false,
+  "github.copilot.enable": { "*": false },
+  "github.copilot.chat.enabled": false,
+  "github.copilot.completions.enabled": false,
+  "github.copilot.nextEditSuggestions.enabled": false,
+  "workbench.secondarySideBar.visible": false
+}
+```
+
+| Setting | Why |
+|---|---|
+| `workbench.startupEditor: "none"` | Disables the welcome tab on startup. |
+| `workbench.welcomePage.enabled: false` | Disables the welcome page entirely. |
+| `chat.disableAIFeatures: true` | Nuclear option — disables and hides ALL built-in AI features (Copilot chat, inline suggestions, agent panel). Since VS Code 1.100+, Copilot is built-in and cannot be uninstalled as an extension. This is the only way to fully suppress it. |
+| `chat.commandCenter.enabled: false` | Hides the AI chat button from the title bar. |
+| `chat.editor.enabled: false` | Disables inline AI chat in the editor. |
+| `chat.agent.enabled: false` | Disables the "Build with Agent" panel. |
+| `github.copilot.enable: {"*": false}` | Disables Copilot for all file types. |
+| `github.copilot.chat.enabled: false` | Disables the Copilot chat panel. |
+| `github.copilot.completions.enabled: false` | Disables inline code completions. |
+| `github.copilot.nextEditSuggestions.enabled: false` | Disables next-edit predictions. |
+| `workbench.secondarySideBar.visible: false` | Hides the secondary sidebar where the Copilot chat panel lives. |
+
+**Note:** Even with all these settings, the Copilot secondary sidebar may still appear when opening a **new folder** for the first time (VS Code stores sidebar visibility in per-workspace state, not settings). If it appears, close it manually once (`Cmd+Shift+P` → "View: Toggle Secondary Side Bar") and VS Code will remember it for that workspace.
+
 Also recommended: globally unbind `Ctrl+O` in VS Code's `keybindings.json` so it passes through to Claude Code's terminal (otherwise VS Code intercepts it as "Open File" and the in-app `Ctrl+O → [` trick won't work):
 
 ```json

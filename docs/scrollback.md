@@ -122,6 +122,7 @@ From the normal buffer's perspective: a CLI tool just suddenly emitted the entir
 - **It must be triggered manually.** There's no setting to make `claude -r` automatically paint history on startup. Anthropic chose this because dumping the history of a long session adds visible latency every time you resume.
 - **It's only available in fullscreen mode** (`NO_FLICKER=1`). With `NO_FLICKER=0`, the dual-buffer mechanism the trick relies on doesn't exist.
 - **One open bug report** ([anthropics/claude-code#42670](https://github.com/anthropics/claude-code/issues/42670)) claims `[` doesn't work on some setups. Test before relying on it. As of our investigation it worked correctly in VS Code's integrated terminal.
+- **Each dump appends — it does NOT clear first.** Every `[` press appends the entire transcript to the normal buffer. If you press `[` six times, you get six copies of the full transcript in scrollback. This fills up the scrollback buffer quickly and makes `Cmd+F` search return dozens of false duplicates. **Always run `clear` before dumping** to wipe the previous dump: type `clear` in the terminal (or `Cmd+K` in VS Code), then re-enter Claude, then `Ctrl+O → [`. This ensures a single clean copy.
 
 ### Hard ~250-line cap
 
