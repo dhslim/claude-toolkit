@@ -209,7 +209,7 @@ Also add these settings to disable VS Code's built-in Copilot/AI features (since
 
 **Note:** Even with all these settings, the Copilot and Claude Code secondary sidebar may still appear when opening a **new folder** for the first time — this is a [known VS Code bug (#247175)](https://github.com/microsoft/vscode/issues/247175). VS Code stores sidebar visibility in per-workspace state, not in settings.json. Close it with `Cmd+Option+B` (Mac) or `Ctrl+Alt+B` (Windows) once per workspace — it stays closed after that.
 
-Also recommended: globally unbind `Ctrl+O` in VS Code's `keybindings.json` so it passes through to Claude Code's terminal (otherwise VS Code intercepts it as "Open File" and the in-app `Ctrl+O → [` trick won't work):
+Also add the following keybindings to VS Code's `keybindings.json` (`Cmd+Shift+P` → "Preferences: Open Keyboard Shortcuts (JSON)"):
 
 ```json
 [
@@ -219,6 +219,46 @@ Also recommended: globally unbind `Ctrl+O` in VS Code's `keybindings.json` so it
   }
 ]
 ```
+
+| Keybinding | Why |
+|---|---|
+| Unbind `Ctrl+O` | VS Code's default `Ctrl+O` is "Open File", which intercepts the keystroke before it reaches the terminal. Without unbinding it, `Ctrl+O → [` (Claude Code's transcript dump) won't work. |
+
+Also make `Cmd+J` (Mac) / `Ctrl+J` (Windows) **focus** the terminal instead of **toggling** it. The default toggle behavior hides the terminal if it's already focused, which is annoying when you're switching between editor and terminal frequently.
+
+Mac:
+```json
+[
+  {
+    "key": "cmd+j",
+    "command": "workbench.action.terminal.focus",
+    "when": "!terminalFocus"
+  },
+  {
+    "key": "cmd+j",
+    "command": "-workbench.action.togglePanel"
+  }
+]
+```
+
+Windows:
+```json
+[
+  {
+    "key": "ctrl+j",
+    "command": "workbench.action.terminal.focus",
+    "when": "!terminalFocus"
+  },
+  {
+    "key": "ctrl+j",
+    "command": "-workbench.action.togglePanel"
+  }
+]
+```
+
+| Keybinding | Why |
+|---|---|
+| `Cmd+J` / `Ctrl+J` → focus terminal | Default behavior toggles the panel (shows/hides). This changes it to always focus the terminal without ever hiding it. When you're running Claude Code in the terminal, you never want `Cmd+J` to hide the terminal — you just want to jump to it. |
 
 ### 13. Verify
 
