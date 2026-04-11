@@ -56,8 +56,10 @@ try:
         raise SystemExit(0)
 except SystemExit:
     raise
-except Exception:
+except Exception as e:
     # MongoDB unreachable — fall through to show quiz (safe default)
+    import sys as _sys
+    print(f'[quiz_check] MongoDB check failed: {type(e).__name__}: {e}', file=_sys.stderr)
     pass
 
 # Write detailed instructions to a temp file for Claude to read
