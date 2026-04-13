@@ -130,6 +130,45 @@ Removes the wrapper from your rc files and reverts the `claude`
 command to native behavior. The proxy script itself stays on disk —
 delete `claude_proxy.py` if you want it gone too.
 
+## Companion setting: disable Claude Code's auto-compact
+
+The proxy and Claude Code's built-in auto-compact are two different
+context-management layers operating on the same problem. Auto-compact
+fires *before* requests leave Claude Code — it destructively
+summarizes the conversation by spawning an Opus call to rewrite the
+message history in place. The proxy can't intervene: by the time a
+trimmed body would matter, auto-compact has already rewritten history.
+
+To make the proxy the single source of truth for context management,
+disable auto-compact via the official Anthropic env var:
+
+```json
+// ~/.claude/settings.json
+{
+  "env": {
+    "DISABLE_AUTO_COMPACT": "1"
+  }
+}
+```
+
+Or set it in your shell environment directly. The `/compact` slash
+command remains available for manual use; only the automatic trigger
+is suppressed.
+
+With auto-compact off, Claude Code sends raw history every turn, the
+proxy trims at the HTTPS layer, and your local JSONL session stays
+fully intact. With auto-compact on, you get layered behavior: Claude
+Code summarizes around 90% of context, then if anything still grows
+past 1M, the proxy catches it. Pick whichever matches your taste —
+"single non-destructive layer" vs "two layers, lossy first".
+
+Note: `DISABLE_AUTO_COMPACT` is the official env var (with
+underscores). The settings.json schema does *not* expose a
+corresponding `autoCompactEnabled` boolean — only `autoCompactWindow`
+for tuning the trigger threshold. If you'd rather just delay
+auto-compact than disable it, set `autoCompactWindow` to its max
+(`1000000`) instead.
+
 ## Running the proxy manually (without the wrapper)
 
 ```bash

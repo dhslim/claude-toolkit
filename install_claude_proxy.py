@@ -147,14 +147,15 @@ def get_posix_rc_files() -> list[Path]:
     return files
 
 
-def get_powershell_profile() -> Path:
-    """Get the user's PowerShell profile path. Prefers PS7 over PS5."""
+def get_powershell_profiles() -> list[Path]:
+    """Return all PowerShell profile paths (PS5 + PS7) that exist or
+    that we want to install into. Both, so the wrapper works whether
+    the user runs Windows PowerShell 5.x or PowerShell 7.x.
+    """
     home = Path.home()
-    ps7 = home / "Documents" / "PowerShell" / "Microsoft.PowerShell_profile.ps1"
     ps5 = home / "Documents" / "WindowsPowerShell" / "Microsoft.PowerShell_profile.ps1"
-    if ps7.parent.exists():
-        return ps7
-    return ps5
+    ps7 = home / "Documents" / "PowerShell" / "Microsoft.PowerShell_profile.ps1"
+    return [ps5, ps7]
 
 
 def strip_existing_wrapper(content: str) -> str:
@@ -222,9 +223,9 @@ def cmd_install() -> None:
     print("Installing wrapper...")
 
     if os_name == "windows":
-        profile = get_powershell_profile()
-        install_to_file(profile, PWSH_WRAPPER)
-        print(f"  ✓ {profile}")
+        for profile in get_powershell_profiles():
+            install_to_file(profile, PWSH_WRAPPER)
+            print(f"  ✓ {profile}")
         print()
         print("Restart PowerShell (or open a new terminal) and just run:  claude")
     else:
@@ -244,12 +245,7 @@ def cmd_uninstall() -> None:
     print("Removing claude_proxy wrapper...")
 
     if os_name == "windows":
-        files = [
-            get_powershell_profile(),
-            # Also check the alt PS profile location, just in case
-            Path.home() / "Documents" / "WindowsPowerShell" / "Microsoft.PowerShell_profile.ps1",
-            Path.home() / "Documents" / "PowerShell" / "Microsoft.PowerShell_profile.ps1",
-        ]
+        files = get_powershell_profiles()
     else:
         files = get_posix_rc_files()
         # Also check both bash variants on macOS
