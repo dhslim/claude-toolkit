@@ -169,6 +169,73 @@ for tuning the trigger threshold. If you'd rather just delay
 auto-compact than disable it, set `autoCompactWindow` to its max
 (`1000000`) instead.
 
+## Critical companion setting: bypass Claude Code's local blocking limit
+
+Disabling auto-compact alone is not enough. Claude Code 2.1.104 has a
+*third* context-management layer that fires before either the proxy or
+auto-compact: a local pre-flight blocking check. Before sending any
+HTTPS request, Claude Code counts tokens locally over its in-memory
+message array and, if the count meets a per-model ceiling, refuses to
+send the request at all. The user sees:
+
+```
+Context limit reached · /compact or /clear to continue
+```
+
+Because the request never leaves the process, **the proxy never sees
+it**, and our token-aware trim cannot help. This is the documented
+"local pre-flight" limitation in the previous section, and it is the
+single most common reason users hit a wall even with the proxy and
+auto-compact disabled.
+
+The check lives in a function (minified name `cjH`) that compares
+the local token estimate against a ceiling derived from the model's
+context window minus a reserve. There is an undocumented escape hatch
+env var that overrides the ceiling directly:
+
+```json
+// ~/.claude/settings.json
+{
+  "env": {
+    "DISABLE_AUTO_COMPACT": "1",
+    "DISABLE_COMPACT": "1",
+    "CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE": "9000000"
+  }
+}
+```
+
+`CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE` raises the local blocking
+ceiling to whatever you set (9M is far past any realistic 1M-context
+session). Once set, Claude Code stops refusing locally, the request
+flows out through the wrapper to the proxy, and the proxy trims it to
+fit Anthropic's actual 1M cap. End-to-end working chain.
+
+`DISABLE_COMPACT=1` is included alongside because the blocking check
+also gates on a separate `DISABLE_COMPACT && CLAUDE_CODE_MAX_CONTEXT_TOKENS`
+branch in function `wV`, and it changes the error label string. Belt
+and suspenders.
+
+**Caveats**:
+
+- These env vars are **undocumented** — they are internal escape
+  hatches embedded in the bundled Bun binary. They were verified
+  against Claude Code `2.1.104`. Future releases may rename or remove
+  them. If they ever stop working, re-grep the binary for
+  `BLOCKING_LIMIT_OVERRIDE`, `MAX_CONTEXT_TOKENS`, or
+  `isAtBlockingLimit`.
+- Settings must be in place **before** launching `claude` — env vars
+  are read at startup. A session already showing the blocking error
+  cannot be unblocked in place; quit, ensure the settings.json env
+  block is set, then `claude -r` to resume the same session.
+- The local pre-flight check is purely in-memory; it never calls
+  Anthropic's `count_tokens`. So a "lying proxy" that returns a
+  fake-low count from `count_tokens` would not help — there is no
+  outgoing counting request to intercept.
+
+With all four layers handled — local blocking (env var), auto-compact
+(env var), API hard cap (proxy trim), wrapper auto-start (shell
+function) — the user types `claude` and just keeps working past 1M.
+
 ## Running the proxy manually (without the wrapper)
 
 ```bash
