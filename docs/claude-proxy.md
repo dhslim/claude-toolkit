@@ -223,10 +223,13 @@ and suspenders.
   them. If they ever stop working, re-grep the binary for
   `BLOCKING_LIMIT_OVERRIDE`, `MAX_CONTEXT_TOKENS`, or
   `isAtBlockingLimit`.
-- Settings must be in place **before** launching `claude` — env vars
-  are read at startup. A session already showing the blocking error
-  cannot be unblocked in place; quit, ensure the settings.json env
-  block is set, then `claude -r` to resume the same session.
+- Settings.json `env` block is **hot-reloaded** by Claude Code on
+  subsequent prompts — empirically verified. We initially assumed
+  startup-only (standard Unix env semantics) and told users they had
+  to restart. They don't. Edit settings.json mid-session and the next
+  prompt picks up the new values, the same way hooks and CLAUDE.md
+  reload. (If a session is already showing the blocking error,
+  saving settings and sending one more prompt is enough.)
 - The local pre-flight check is purely in-memory; it never calls
   Anthropic's `count_tokens`. So a "lying proxy" that returns a
   fake-low count from `count_tokens` would not help — there is no
@@ -252,6 +255,22 @@ claude
 Useful for debugging — you see verbose logs in real time.
 
 ## Known limitations
+
+- **Upstream 20 MB byte cap (Layer 5, open issue)**: in addition to
+  Anthropic's 1 M token cap, *something* upstream returns HTTP 413
+  when the request body crosses 20 MB. Claude Code surfaces this as
+  `Request too large (max 20MB). Double press esc to go back and try
+  with a smaller file.` The check is **not** client-side — Claude
+  Code's only `_f$()` call site is its 413 error handler, and there
+  is no `body.length > 20MB` guard anywhere in the binary. So the
+  413 originates from Anthropic itself, their CDN, a load balancer,
+  or our proxy's HTTP layer — currently unverified which. The proxy
+  trims by token budget (700 K) only, not bytes. Sessions where
+  700 K tokens happen to serialize to over 20 MB (unusual but
+  possible with byte-heavy structured tool_results) will still hit
+  the 413. **Fix in progress**: byte-aware secondary trim, or
+  413-retry-with-tighter-budget in the proxy. See
+  `claude-proxy-design.md` "Layer 5" for the full investigation.
 
 - **Latency**: each slow-path request adds 1–3 seconds (count_tokens +
   binary-search trim). The trim binary-search is `O(log N)` group
@@ -281,18 +300,31 @@ Useful for debugging — you see verbose logs in real time.
 ## Files
 
 - `claude_proxy.py` — the proxy itself. Single-file Python, FastAPI +
-  httpx + uvicorn. ~400 lines.
+  httpx + uvicorn. ~430 lines.
 - `install_claude_proxy.py` — cross-platform shell-rc installer.
-- `docs/claude-proxy.md` — this file.
+- `docs/claude-proxy.md` — this file. User-facing reference.
+- `docs/claude-proxy-design.md` — the long-form design history.
+  Explains *how we got here*: the four (now five) defense layers, the
+  empirical surprises, the wrong assumptions we corrected, and why
+  each piece exists. Read this when you need to understand or extend
+  the system, not just use it.
 
 ## What it does NOT do
 
 - It does not modify your session JSONL files.
-- It does not change Claude Code's behavior outside the HTTPS layer.
+- It does not change Claude Code's behavior outside the HTTPS layer
+  (other than reading env vars from settings.json that Claude Code
+  itself respects).
 - It does not summarize or retrieve. Pure drop-oldest trim.
-- It does not bypass Claude Code's local pre-flight check. If Claude
-  Code refuses to send a request because *its own* estimator says you're
-  over context, the request never reaches the proxy and we can't help.
+- It does not (yet) handle Layer 5 — the upstream 20 MB byte cap.
+  Bodies that serialize to over 20 MB still get a 413 from upstream.
+  Token-aware trim is necessary but not always sufficient.
+
+(The proxy *does* now bypass Claude Code's local pre-flight blocking
+check via the `CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE` env var documented
+in the "Critical companion setting" section above. An earlier version
+of this doc said it didn't, which was true before we found the
+escape hatch.)
   In practice this happens when resuming a session that's already past
   the cap before the first new turn fires.
 
