@@ -13,3 +13,10 @@ quiz-last-shown.txt
 quiz-last-taken.txt
 quiz-last-dismissed.txt
 quiz-instructions-active.txt
+
+# claude_proxy.py runtime artifacts — may contain full conversation
+# bodies, auth headers, or file paths; never commit.
+probe-dump-*.json
+probe-dump-*.summary.txt
+proxy.log
+proxy.err.log

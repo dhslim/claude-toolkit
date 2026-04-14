@@ -1,10 +1,16 @@
-"""Claude Code API proxy — token-aware trim.
+"""Claude Code API proxy — sliding-window trim (Option 5).
 
 Listens on localhost:9999 and forwards every request to api.anthropic.com.
-When a /v1/messages body would exceed Anthropic's token cap (the real
-limit — there is no separate byte cap we've observed), drops the oldest
-"turn groups" until Anthropic's own count_tokens endpoint reports the
-request as under budget. Otherwise forwards unchanged.
+When a /v1/messages body would exceed Anthropic's token cap, uses a
+per-session sliding-window anchor that advances monotonically: when the
+count_tokens result crosses SHIFT_THRESHOLD, the anchor halves forward,
+dropping the older half of the kept conversation in one shot.
+
+Between shifts the byte prefix stays stable, so Anthropic's prompt cache
+hits at ~99% rate via the 20-block lookback — same behavior as
+Claude Code's native caching strategy. At shift moments, one turn pays
+a ~3–5 min cache-miss penalty to establish a new snapshot. On average
+~1 shift per 100–250 turns, so the slow-turn rate is ~1%.
 
 Two-path design:
     Fast path — body < FAST_PATH_THRESHOLD bytes
@@ -14,20 +20,23 @@ Two-path design:
         helper calls, small Opus requests).
 
     Slow path — body >= FAST_PATH_THRESHOLD bytes
-        Ask Anthropic's /v1/messages/count_tokens endpoint for the exact
-        token count. If under TOKEN_BUDGET, forward unchanged. If over,
-        binary-search turn groups to find the maximum newest-N that fits,
-        then forward the trimmed body.
+        Apply the per-session sliding-window anchor (front-drop everything
+        before groups[anchor]). Ask count_tokens for the exact size. If over
+        SHIFT_THRESHOLD, advance the anchor forward by SHIFT_RATIO of the
+        remaining kept content (halve-on-threshold). Always rewrite the
+        messages-level cache_control to point at the new last cacheable block.
 
 Usage:
     python claude_proxy.py
 
 Env vars:
-    CLAUDE_PROXY_FAST_BYTES    body size (bytes) below which to skip the
-                               token check. Default 950,000 (~0.9 MB).
-    CLAUDE_PROXY_TOKEN_BUDGET  token ceiling we trim to. Default 950,000
-                               (margin under Anthropic's 1,000,000 cap).
-    CLAUDE_PROXY_QUIET         if set, only log trims and errors.
+    CLAUDE_PROXY_FAST_BYTES       body size (bytes) below which to skip the
+                                  token check. Default 950,000 (~0.9 MB).
+    CLAUDE_PROXY_SHIFT_THRESHOLD  token ceiling that triggers a sliding-window
+                                  shift. Default 900,000 (margin under 1M cap).
+    CLAUDE_PROXY_SHIFT_RATIO      fraction of kept content to drop per shift.
+                                  Default 0.5 (halve).
+    CLAUDE_PROXY_QUIET            if set, only log trims and errors.
 
 Then in another terminal:
     $env:ANTHROPIC_BASE_URL="http://localhost:9999"
@@ -42,11 +51,22 @@ What a "turn group" is:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
 import time
+from collections import OrderedDict
 from contextlib import asynccontextmanager
+
+_log_path = os.environ.get("CLAUDE_PROXY_LOG_FILE", r"C:\Users\user\Desktop\claude-toolkit\proxy.log")
+if _log_path:
+    try:
+        _fh = open(_log_path, "a", buffering=1, encoding="utf-8")
+        sys.stdout = _fh
+        sys.stderr = _fh
+    except Exception:
+        pass
 
 import httpx
 from fastapi import FastAPI, Request
@@ -74,18 +94,23 @@ LISTEN_PORT = 9999
 # tokens Anthropic adds internally).
 FAST_PATH_THRESHOLD = int(os.environ.get("CLAUDE_PROXY_FAST_BYTES", "950000"))
 
-# TOKEN_BUDGET is in tokens. This is what we actually try to stay under
-# when the slow path fires.
+# SHIFT_THRESHOLD is the token count above which we fire a sliding-window
+# shift: the anchor jumps forward by shift_ratio × remaining, dropping that
+# much of the oldest kept content in one monotonic move.
 #
 # IMPORTANT: count_tokens API systematically UNDER-reports vs actual
 # processing. We empirically observed count_tokens=912k while Anthropic's
 # real processing reported 1,148k for the same body — a 26% discrepancy.
-# Likely cause: count_tokens doesn't see max_tokens reservation or
-# certain special internal additions. We use a generous safety margin.
+# We use a generous safety margin under the 1M cap.
 #
-# 700_000 budget × ~1.26 expansion = ~882_000 actual processing tokens,
-# leaving ~118k margin from the 1M cap.
-TOKEN_BUDGET = int(os.environ.get("CLAUDE_PROXY_TOKEN_BUDGET", "700000"))
+# 900_000 threshold × ~1.1 expansion ≈ ~990_000 real tokens worst case —
+# right at the cap. Set env var lower (e.g. 800000) for more margin.
+SHIFT_THRESHOLD = int(os.environ.get("CLAUDE_PROXY_SHIFT_THRESHOLD", "900000"))
+
+# How aggressively each shift halves. 0.5 = drop half the kept content per
+# shift. Lower = smaller drops more often; higher = bigger drops less often.
+# 0.5 is the geometric-decay default — buys ~500k tokens of runway per shift.
+SHIFT_RATIO = float(os.environ.get("CLAUDE_PROXY_SHIFT_RATIO", "0.5"))
 
 # Verbose by default. Set CLAUDE_PROXY_QUIET=1 to only log trims and errors.
 QUIET = os.environ.get("CLAUDE_PROXY_QUIET", "").strip() not in ("", "0", "false", "False")
@@ -140,6 +165,50 @@ def short_auth(auth: str | None) -> str:
     if not auth:
         return "<none>"
     return auth[:20] + "...<redacted>"
+
+
+def extract_usage_from_sse(buf: bytes) -> str:
+    # SSE 스트림에서 usage 정보를 뽑아낸다 (cache hit/miss 진단용)
+    try:
+        text = buf.decode("utf-8", errors="replace")
+    except Exception:
+        return "<undecodable>"
+
+    input_t = cache_read = cache_create = output_t = None
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        data_str = line[5:].strip()
+        if not data_str or data_str == "[DONE]":
+            continue
+        try:
+            obj = json.loads(data_str)
+        except Exception:
+            continue
+        t = obj.get("type")
+        if t == "message_start":
+            u = obj.get("message", {}).get("usage", {}) or {}
+            input_t = u.get("input_tokens", input_t)
+            cache_read = u.get("cache_read_input_tokens", cache_read)
+            cache_create = u.get("cache_creation_input_tokens", cache_create)
+            if "output_tokens" in u:
+                output_t = u["output_tokens"]
+        elif t == "message_delta":
+            u = obj.get("usage", {}) or {}
+            if "output_tokens" in u:
+                output_t = u["output_tokens"]
+
+    parts = []
+    if input_t is not None:
+        parts.append(f"in={input_t:,}")
+    if cache_read is not None:
+        parts.append(f"cache_read={cache_read:,}")
+    if cache_create is not None:
+        parts.append(f"cache_create={cache_create:,}")
+    if output_t is not None:
+        parts.append(f"out={output_t:,}")
+    return " ".join(parts) if parts else "<no-usage>"
 
 
 def describe_body(body_bytes: bytes) -> str:
@@ -256,6 +325,56 @@ def _group_preview(group: list, width: int = 30) -> str:
     return "<no-user-msg>"
 
 
+def session_key_for_messages(messages: list) -> str | None:
+    """SHA-256 (16 hex chars) of the first real user message's cleaned text.
+
+    Stable within a conversation — the first user message doesn't change until
+    /compact or /clear, at which point the prefix is genuinely different and a
+    fresh key is correct. Returns None if no real user message exists.
+
+    Uses the same framework-noise filter as _group_preview so stray
+    <system-reminder> injections don't perturb the key.
+    """
+
+    def _is_framework_noise(t: str) -> bool:
+        s = t.lstrip()
+        return (
+            s.startswith("<system-reminder>")
+            or s.startswith("<command-message>")
+            or s.startswith("<command-name>")
+            or s.startswith("<local-command")
+            or s.startswith("<task-notification>")
+            or s.startswith("<bash-input>")
+        )
+
+    for m in messages:
+        if not is_real_user_message(m):
+            continue
+        content = m.get("content")
+        if isinstance(content, str):
+            text = content
+        elif isinstance(content, list):
+            chosen = ""
+            fallback = ""
+            for b in content:
+                if not isinstance(b, dict) or b.get("type") != "text":
+                    continue
+                t = b.get("text", "") or ""
+                if not fallback:
+                    fallback = t
+                if not _is_framework_noise(t):
+                    chosen = t
+                    break
+            text = chosen or fallback
+        else:
+            text = ""
+        text = text.strip()
+        if not text:
+            return None
+        return hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()[:16]
+    return None
+
+
 # Headers that count_tokens needs forwarded (auth + versioning).
 COUNT_TOKENS_FORWARD_HEADERS = {
     "authorization",
@@ -277,6 +396,116 @@ COUNT_TOKENS_REJECTED_FIELDS = {
     "top_k",
     "service_tier",
 }
+
+
+# 진단용 카운터 — proxy() handler가 turn 시작 시 리셋
+_count_tokens_calls = 0
+_count_tokens_elapsed_ms = 0.0
+
+# Per-session sliding-window anchors. Key = hash of first real user message.
+# Value = anchor_group_index — the earliest turn group the request includes.
+# Everything before the anchor is dropped. The anchor is a ratchet: it only
+# moves forward, never backward, so the byte prefix between shifts is stable
+# and Anthropic's prompt cache keeps hitting. Bounded LRU so memory can't
+# leak on long-running proxies.
+_MAX_SESSIONS = 100
+_session_watermarks: "OrderedDict[str, int]" = OrderedDict()
+
+# One-shot probe: dumps the next real /v1/messages body to a file for
+# offline inspection (counting cache_control markers, inspecting structure).
+# Fires once per proxy process, then stays off.
+_probe_fired = False
+_PROBE_DUMP_DIR = os.environ.get("CLAUDE_PROXY_PROBE_DIR") or os.path.dirname(
+    os.path.abspath(__file__)
+)
+
+
+def _count_cache_control_markers(body_obj: dict) -> dict:
+    """Walk a /v1/messages body and count explicit cache_control markers.
+
+    Returns a dict with counts per section so we know how many breakpoint
+    slots Claude Code is already using and where, before designing the
+    head/tail cache strategy.
+    """
+    counts = {"system": 0, "tools": 0, "messages": 0, "total": 0, "locations": []}
+
+    def _scan_block(block, where: str):
+        if isinstance(block, dict) and "cache_control" in block:
+            counts[where] += 1
+            counts["total"] += 1
+            counts["locations"].append(
+                f"{where}: type={block.get('type')} ttl={block.get('cache_control', {}).get('ttl', '5m')}"
+            )
+
+    sys_field = body_obj.get("system")
+    if isinstance(sys_field, list):
+        for b in sys_field:
+            _scan_block(b, "system")
+    elif isinstance(sys_field, dict):
+        _scan_block(sys_field, "system")
+
+    tools = body_obj.get("tools") or []
+    if isinstance(tools, list):
+        for t in tools:
+            _scan_block(t, "tools")
+
+    messages = body_obj.get("messages") or []
+    if isinstance(messages, list):
+        for i, m in enumerate(messages):
+            if not isinstance(m, dict):
+                continue
+            content = m.get("content")
+            if isinstance(content, list):
+                for b in content:
+                    if isinstance(b, dict) and "cache_control" in b:
+                        counts["messages"] += 1
+                        counts["total"] += 1
+                        counts["locations"].append(
+                            f"messages[{i}]:{b.get('type')} ttl={b.get('cache_control', {}).get('ttl', '5m')}"
+                        )
+
+    return counts
+
+
+def _probe_dump_once(body_bytes: bytes) -> None:
+    """Dump the next real /v1/messages body for offline inspection.
+
+    Fires at most once per proxy process. Failures are swallowed — probes
+    must never affect the real request path.
+    """
+    global _probe_fired
+    if _probe_fired:
+        return
+    try:
+        body_obj = json.loads(body_bytes.decode("utf-8"))
+        counts = _count_cache_control_markers(body_obj)
+        ts = int(time.time())
+        dump_path = os.path.join(_PROBE_DUMP_DIR, f"probe-dump-{ts}.json")
+        summary_path = os.path.join(_PROBE_DUMP_DIR, f"probe-dump-{ts}.summary.txt")
+        with open(dump_path, "wb") as f:
+            f.write(body_bytes)
+        with open(summary_path, "w", encoding="utf-8") as f:
+            f.write(f"cache_control markers in body\n")
+            f.write(f"  total:    {counts['total']}\n")
+            f.write(f"  system:   {counts['system']}\n")
+            f.write(f"  tools:    {counts['tools']}\n")
+            f.write(f"  messages: {counts['messages']}\n\n")
+            f.write("locations:\n")
+            for loc in counts["locations"]:
+                f.write(f"  {loc}\n")
+            f.write(f"\nbody_bytes: {len(body_bytes):,}\n")
+            f.write(f"model:      {body_obj.get('model')}\n")
+            f.write(f"msg_count:  {len(body_obj.get('messages') or [])}\n")
+        log(
+            f"[probe] captured /v1/messages body: "
+            f"{counts['total']} cache_control markers "
+            f"(system={counts['system']}, tools={counts['tools']}, messages={counts['messages']}) "
+            f"→ {os.path.basename(dump_path)}"
+        )
+        _probe_fired = True
+    except Exception as e:
+        log(f"[probe] dump failed: {e}")
+        _probe_fired = True  # don't keep retrying on a broken path
 
 
 async def count_tokens_via_anthropic(
@@ -308,6 +537,9 @@ async def count_tokens_via_anthropic(
     except Exception:
         ct_body_bytes = body_bytes
 
+    global _count_tokens_calls, _count_tokens_elapsed_ms
+    _count_tokens_calls += 1
+    ct_t0 = time.monotonic()
     try:
         resp = await client.post(
             "/v1/messages/count_tokens",
@@ -315,8 +547,10 @@ async def count_tokens_via_anthropic(
             headers=ct_headers,
         )
     except httpx.HTTPError as e:
+        _count_tokens_elapsed_ms += (time.monotonic() - ct_t0) * 1000
         log(f"! count_tokens network error: {e}")
         return None
+    _count_tokens_elapsed_ms += (time.monotonic() - ct_t0) * 1000
 
     if resp.status_code != 200:
         try:
@@ -334,15 +568,125 @@ async def count_tokens_via_anthropic(
         return None
 
 
-async def trim_to_token_budget(
-    body_bytes: bytes, budget_tokens: int, request_headers: dict
-) -> tuple[bytes, dict | None]:
-    """Trim oldest turn groups until Anthropic reports <= budget tokens.
+def _is_cacheable_block(block: object) -> bool:
+    """True if a content block can legally hold an explicit cache_control marker.
 
-    Uses binary search over turn groups to minimize count_tokens calls.
-    Returns (final_bytes, trim_info). trim_info is None if no trim happened.
+    Anthropic docs: thinking blocks cannot hold explicit cache_control, and
+    empty text blocks are never cached. Everything else (text with content,
+    tool_use, tool_result, image, document) is a legal target.
     """
-    vlog(f"  → trim check, body={len(body_bytes):,}B")
+    if not isinstance(block, dict):
+        return False
+    btype = block.get("type")
+    if btype == "thinking":
+        return False
+    if btype == "text" and not (block.get("text") or "").strip():
+        return False
+    return True
+
+
+def rewrite_cache_control_markers(body: dict) -> None:
+    """Replace any existing messages-level cache_control with exactly one new
+    marker on the last cacheable block of the last message, with ttl=1h.
+
+    Leaves `system` and `tools` cache_control alone — Claude Code's system
+    breakpoints are load-bearing and independent of our sliding window.
+
+    Mutates `body` in place. If the last message has a string content,
+    converts it to block form so we can attach the marker.
+    """
+    messages = body.get("messages")
+    if not isinstance(messages, list) or not messages:
+        return
+
+    # Strip ALL existing cache_control on message content blocks so we don't
+    # accumulate stale markers from prior Claude Code insertions. We leave
+    # system/tools cache_control alone (those aren't inside `messages`).
+    for m in messages:
+        if not isinstance(m, dict):
+            continue
+        content = m.get("content")
+        if not isinstance(content, list):
+            continue
+        for b in content:
+            if isinstance(b, dict) and "cache_control" in b:
+                del b["cache_control"]
+
+    # Insert one new marker on the last cacheable block of the last message.
+    last_msg = messages[-1]
+    if not isinstance(last_msg, dict):
+        return
+    content = last_msg.get("content")
+
+    # String content → convert to block form so we can attach cache_control.
+    if isinstance(content, str):
+        if content.strip():
+            last_msg["content"] = [
+                {
+                    "type": "text",
+                    "text": content,
+                    "cache_control": {"type": "ephemeral", "ttl": "1h"},
+                }
+            ]
+        return
+
+    if not isinstance(content, list) or not content:
+        return
+
+    for b in reversed(content):
+        if _is_cacheable_block(b):
+            b["cache_control"] = {"type": "ephemeral", "ttl": "1h"}
+            return
+
+
+def _estimate_group_tokens(group: list) -> int:
+    """Cheap chars/4 estimate of tokens in a turn group. Used only for
+    rounding the midpoint target to the nearest group boundary — the real
+    token count comes from count_tokens_via_anthropic.
+    """
+    total_chars = 0
+    for m in group:
+        if not isinstance(m, dict):
+            continue
+        content = m.get("content")
+        if isinstance(content, str):
+            total_chars += len(content)
+        elif isinstance(content, list):
+            for b in content:
+                if not isinstance(b, dict):
+                    continue
+                btype = b.get("type")
+                if btype == "text":
+                    total_chars += len(b.get("text") or "")
+                elif btype == "tool_use":
+                    total_chars += len(json.dumps(b.get("input") or {}, ensure_ascii=False))
+                elif btype == "tool_result":
+                    tc = b.get("content")
+                    if isinstance(tc, str):
+                        total_chars += len(tc)
+                    elif isinstance(tc, list):
+                        for sub in tc:
+                            if isinstance(sub, dict) and sub.get("type") == "text":
+                                total_chars += len(sub.get("text") or "")
+                elif btype == "thinking":
+                    total_chars += len(b.get("thinking") or "")
+    return max(1, total_chars // 4)
+
+
+async def trim_to_sliding_window(
+    body_bytes: bytes,
+    threshold_tokens: int,
+    shift_ratio: float,
+    request_headers: dict,
+    prior_anchor: int = 0,
+) -> tuple[bytes, dict | None]:
+    """Apply the per-session sliding-window anchor and halve forward if over threshold.
+
+    Returns (final_bytes, info). info is None if nothing changed (no prior
+    anchor, body under threshold, no cache_control rewrite needed). Otherwise
+    info carries diagnostics including the new anchor and whether a shift fired.
+    """
+    vlog(f"  → sliding-window check, body={len(body_bytes):,}B, prior_anchor={prior_anchor}")
     try:
         body = json.loads(body_bytes.decode("utf-8"))
     except Exception as e:
@@ -356,82 +700,90 @@ async def trim_to_token_budget(
 
     original_messages = list(messages)
     groups = split_into_turn_groups(original_messages)
-    if not groups:
-        return body_bytes, None
-
-    # First, check how many tokens the full body actually has.
-    initial_tokens = await count_tokens_via_anthropic(body_bytes, request_headers)
-    if initial_tokens is None:
-        # count_tokens unreachable — fall back to pass-through.
-        log(f"  ! count_tokens returned None — passing through")
-        return body_bytes, None
-    if initial_tokens <= budget_tokens:
-        # Already fits. No trim needed.
-        vlog(f"  → {initial_tokens:,}tok within budget, no trim")
-        return body_bytes, None
-
     total_groups = len(groups)
+    if total_groups == 0:
+        return body_bytes, None
+    original_size = len(body_bytes)
 
-    async def tokens_for_last_n_groups(n: int) -> tuple[int | None, bytes]:
-        trial_msgs = [m for g in groups[-n:] for m in g]
-        body["messages"] = trial_msgs
-        trial_bytes = json.dumps(body).encode("utf-8")
-        tokens = await count_tokens_via_anthropic(trial_bytes, request_headers)
-        return tokens, trial_bytes
+    # Clamp prior_anchor to a valid range. Never drop everything — always
+    # keep at least 1 group so the request remains structurally valid.
+    anchor = max(0, min(prior_anchor, total_groups - 1))
 
-    # Binary search for the largest n (keep n newest groups) that fits.
-    lo, hi = 1, total_groups
-    best_n = 0
-    best_bytes = body_bytes
-    best_tokens = initial_tokens
+    def build_body_at_anchor(a: int) -> bytes:
+        kept_groups = groups[a:]
+        kept_msgs = [m for g in kept_groups for m in g]
+        body["messages"] = kept_msgs
+        rewrite_cache_control_markers(body)
+        return json.dumps(body).encode("utf-8")
 
-    while lo <= hi:
-        mid = (lo + hi) // 2
-        mid_tokens, mid_bytes = await tokens_for_last_n_groups(mid)
-        if mid_tokens is None:
-            break
-        if mid_tokens <= budget_tokens:
-            best_n = mid
-            best_bytes = mid_bytes
-            best_tokens = mid_tokens
-            lo = mid + 1
-        else:
-            hi = mid - 1
+    # Build the body at the current (prior) anchor and measure real tokens.
+    trial_bytes = build_body_at_anchor(anchor)
+    initial_tokens = await count_tokens_via_anthropic(trial_bytes, request_headers)
+    if initial_tokens is None:
+        log("  ! count_tokens returned None — passing through")
+        return body_bytes, None
 
-    if best_n == 0:
-        # Even the last group alone is over budget. Forward it anyway —
-        # Anthropic may reject, but this is the structurally minimum
-        # request we can form.
-        body["messages"] = groups[-1]
-        best_bytes = json.dumps(body).encode("utf-8")
-        best_n = 1
-        best_tokens = await count_tokens_via_anthropic(best_bytes, request_headers)
+    anchor_before = anchor
+    tokens_before = initial_tokens
+    shift_fired = False
 
-    # Reassemble kept groups so the window preview matches what we forward.
-    best_kept_groups = groups[-best_n:]
-    first_kept_index = total_groups - best_n
+    if initial_tokens > threshold_tokens:
+        # Over threshold: advance the anchor forward by shift_ratio of the
+        # remaining kept content. The TODO(human) decides *which group* lands
+        # closest to the token-midpoint target.
+        per_group_tokens = [_estimate_group_tokens(g) for g in groups]
 
-    kept_previews = [_group_preview(g) for g in best_kept_groups]
-    first_dropped_preview = None
-    last_dropped_preview = None
-    if first_kept_index > 0:
-        first_dropped_preview = _group_preview(groups[0])
-        last_dropped_preview = _group_preview(groups[first_kept_index - 1])
+        # Walk forward from `anchor`, accumulating estimated tokens, until
+        # we cross shift_ratio * remaining. new_anchor = i + 1 rounds UP past
+        # the crossing group — i.e. we drop the group that tipped us over and
+        # everything before it, committing fully to the shift rather than
+        # stopping short. Clamp guarantees we always advance by ≥ 1 and
+        # always leave ≥ 1 group kept. If anchor is already at the last
+        # group, new_anchor ends up == anchor and the outer check below
+        # treats it as a no-op (no shift fires).
+        remaining_tokens = sum(per_group_tokens[anchor:])
+        target_drop = shift_ratio * remaining_tokens
+        accumulated = 0
+        new_anchor = anchor + 1
+        for i in range(anchor, total_groups - 1):
+            accumulated += per_group_tokens[i]
+            if accumulated >= target_drop:
+                new_anchor = i + 1
+                break
+        new_anchor = min(max(new_anchor, anchor + 1), total_groups - 1)
 
-    return best_bytes, {
-        "original_size": len(body_bytes),
-        "final_size": len(best_bytes),
+        if new_anchor > anchor and new_anchor < total_groups:
+            anchor = new_anchor
+            trial_bytes = build_body_at_anchor(anchor)
+            new_tokens = await count_tokens_via_anthropic(trial_bytes, request_headers)
+            if new_tokens is not None:
+                initial_tokens = new_tokens
+            shift_fired = True
+
+    final_bytes = trial_bytes
+    kept_count = total_groups - anchor
+    dropped_count = anchor
+
+    kept_preview = _group_preview(groups[anchor]) if anchor < total_groups else "<empty>"
+    first_dropped_preview = _group_preview(groups[0]) if dropped_count > 0 else None
+    last_dropped_preview = _group_preview(groups[anchor - 1]) if anchor > 0 else None
+
+    return final_bytes, {
+        "original_size": original_size,
+        "final_size": len(final_bytes),
         "original_groups": total_groups,
-        "kept_groups": best_n,
-        "dropped_groups": total_groups - best_n,
+        "kept_groups": kept_count,
+        "dropped_groups": dropped_count,
         "original_messages": len(original_messages),
-        "kept_messages": sum(len(g) for g in best_kept_groups),
-        "first_kept_index": first_kept_index,
-        "kept_previews": kept_previews,
+        "kept_messages": sum(len(g) for g in groups[anchor:]),
+        "anchor_before": anchor_before,
+        "anchor_after": anchor,
+        "shift_fired": shift_fired,
+        "tokens_before": tokens_before,
+        "tokens_after": initial_tokens,
+        "first_kept_preview": kept_preview,
         "first_dropped_preview": first_dropped_preview,
         "last_dropped_preview": last_dropped_preview,
-        "tokens_before": initial_tokens,
-        "tokens_after": best_tokens,
     }
 
 
@@ -440,6 +792,9 @@ async def trim_to_token_budget(
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"],
 )
 async def proxy(request: Request, full_path: str):
+    global _count_tokens_calls, _count_tokens_elapsed_ms
+    _count_tokens_calls = 0
+    _count_tokens_elapsed_ms = 0.0
     started = time.monotonic()
 
     # Read incoming body
@@ -469,39 +824,69 @@ async def proxy(request: Request, full_path: str):
     # Two-path design for /v1/messages:
     #   - Fast path: body under FAST_PATH_THRESHOLD bytes cannot exceed the
     #     token cap (BPE guarantees tokens <= bytes), so skip the token check.
-    #   - Slow path: ask Anthropic's count_tokens endpoint for the exact
-    #     count, trim turn groups if over TOKEN_BUDGET.
+    #   - Slow path: apply per-session sliding window anchor (front-drop),
+    #     then halve-on-threshold if count_tokens reports over SHIFT_THRESHOLD.
     # Skip count_tokens itself to avoid recursion (we call it directly below).
     is_messages = (
         full_path.startswith("v1/messages")
         and not full_path.startswith("v1/messages/count_tokens")
     )
+
+    trim_elapsed_ms = 0.0
     if is_messages and body_size >= FAST_PATH_THRESHOLD:
-        trimmed, info = await trim_to_token_budget(body, TOKEN_BUDGET, dict(request.headers))
+        # One-shot probe: capture the next slow-path /v1/messages body for
+        # offline inspection of cache_control usage. Fires once per process.
+        if not _probe_fired:
+            _probe_dump_once(body)
+        # Look up this session's sliding-window anchor (if any) before trimming.
+        # Session key = hash of first real user message text. Stable until
+        # /compact or /clear, at which point a new key is correct.
+        session_key: str | None = None
+        prior_anchor = 0
+        try:
+            body_obj = json.loads(body.decode("utf-8"))
+            if isinstance(body_obj, dict) and isinstance(body_obj.get("messages"), list):
+                session_key = session_key_for_messages(body_obj["messages"])
+        except Exception:
+            session_key = None
+        if session_key is not None and session_key in _session_watermarks:
+            prior_anchor = _session_watermarks[session_key]
+            _session_watermarks.move_to_end(session_key)  # LRU touch
+
+        trim_t0 = time.monotonic()
+        trimmed, info = await trim_to_sliding_window(
+            body,
+            SHIFT_THRESHOLD,
+            SHIFT_RATIO,
+            dict(request.headers),
+            prior_anchor=prior_anchor,
+        )
+        trim_elapsed_ms = (time.monotonic() - trim_t0) * 1000
         if info is not None:
             body = trimmed
             body_size = len(body)
+            # Advance (or initialize) the session anchor. LRU evict if needed.
+            if session_key is not None:
+                _session_watermarks[session_key] = info["anchor_after"]
+                _session_watermarks.move_to_end(session_key)
+                while len(_session_watermarks) > _MAX_SESSIONS:
+                    _session_watermarks.popitem(last=False)
+            shift_tag = " [SHIFT]" if info["shift_fired"] else ""
             log(
-                f"✂ trimmed: "
+                f"✂ sliding-window{shift_tag}: "
                 f"{info['tokens_before']:,}tok → {info['tokens_after']:,}tok  "
                 f"({info['original_size']:,}B → {info['final_size']:,}B)  "
-                f"groups: {info['original_groups']} → {info['kept_groups']} "
+                f"anchor {info['anchor_before']}→{info['anchor_after']}  "
+                f"groups {info['original_groups']}→{info['kept_groups']} "
                 f"(dropped {info['dropped_groups']})  "
-                f"msgs: {info['original_messages']} → {info['kept_messages']}"
+                f"msgs {info['original_messages']}→{info['kept_messages']}"
             )
-            # Show the "window" — which user messages survived.
-            start_idx = info["first_kept_index"]
-            previews = info["kept_previews"]
-            window_items = []
-            for i, p in enumerate(previews):
-                window_items.append(f"[{start_idx + i}] \"{p}\"")
-            window_str = "  ".join(window_items)
-            log(f"  window: {window_str}")
-            if info["first_dropped_preview"] is not None:
+            if info.get("first_dropped_preview") is not None:
                 log(
                     f"  dropped: [0] \"{info['first_dropped_preview']}\" … "
-                    f"[{start_idx - 1}] \"{info['last_dropped_preview']}\""
+                    f"[{info['anchor_after'] - 1}] \"{info['last_dropped_preview']}\""
                 )
+            log(f"  first kept: [{info['anchor_after']}] \"{info['first_kept_preview']}\"")
 
     # Build the upstream request. We stream the response back as it arrives.
     upstream_req = client.build_request(
@@ -523,17 +908,22 @@ async def proxy(request: Request, full_path: str):
             media_type="application/json",
         )
 
-    elapsed_ms = (time.monotonic() - started) * 1000
-    vlog(f"← {upstream_resp.status_code}  in {elapsed_ms:.0f}ms  (streaming...)")
+    upstream_send_ms = (time.monotonic() - started) * 1000
+    vlog(f"← {upstream_resp.status_code}  in {upstream_send_ms:.0f}ms  (streaming...)")
 
     # On error (4xx/5xx), buffer the body so we can log it, then relay.
     # This helps diagnose why Anthropic rejected (token cap, byte cap, etc).
     async def relay():
+        first_byte_t = None
+        # 진단용: SSE 스트림 전체를 버퍼에 모아서 usage 추출 (cache_read 등)
+        diag_buffer: list[bytes] = []
         try:
             if upstream_resp.status_code >= 400:
                 # Read whole body, log it, then replay to client.
                 chunks = []
                 async for chunk in upstream_resp.aiter_bytes():
+                    if first_byte_t is None:
+                        first_byte_t = time.monotonic()
                     chunks.append(chunk)
                 body_bytes = b"".join(chunks)
                 try:
@@ -544,9 +934,27 @@ async def proxy(request: Request, full_path: str):
                 yield body_bytes
             else:
                 async for chunk in upstream_resp.aiter_bytes():
+                    if first_byte_t is None:
+                        first_byte_t = time.monotonic()
+                    diag_buffer.append(chunk)
                     yield chunk
         finally:
             await upstream_resp.aclose()
+            # 진단 로그: 모든 timing + cache usage 한 줄로
+            now = time.monotonic()
+            total_ms = (now - started) * 1000
+            ttfb_ms = ((first_byte_t - started) * 1000) if first_byte_t else -1
+            stream_ms = ((now - first_byte_t) * 1000) if first_byte_t else 0
+            usage_str = extract_usage_from_sse(b"".join(diag_buffer)) if diag_buffer else "<error>"
+            log(
+                f"⏱ total={total_ms:.0f}ms "
+                f"trim={trim_elapsed_ms:.0f}ms "
+                f"(ct={_count_tokens_calls}×{_count_tokens_elapsed_ms:.0f}ms) "
+                f"send={upstream_send_ms:.0f}ms "
+                f"ttfb={ttfb_ms:.0f}ms "
+                f"stream={stream_ms:.0f}ms "
+                f"| {usage_str}"
+            )
 
     # Filter response headers
     response_headers = {
@@ -570,7 +978,7 @@ if __name__ == "__main__":
         f"fast path:   body < {FAST_PATH_THRESHOLD:,} bytes "
         f"({FAST_PATH_THRESHOLD / 1024 / 1024:.2f} MB)"
     )
-    log(f"token budget: {TOKEN_BUDGET:,} tokens")
+    log(f"shift threshold: {SHIFT_THRESHOLD:,} tokens  (ratio {SHIFT_RATIO})")
     log(f"mode:         {'quiet' if QUIET else 'verbose'}")
     log("set ANTHROPIC_BASE_URL=http://localhost:9999 in your client")
     uvicorn.run(
