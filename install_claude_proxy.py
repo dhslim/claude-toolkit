@@ -8,7 +8,11 @@ What this does:
       1. Checks if the proxy is already running on localhost:9999
       2. If not, starts it lazily in the background (hidden)
       3. Sets ANTHROPIC_BASE_URL=http://localhost:9999 for this child
-      4. Calls the REAL claude binary, passing through your args
+      4. Sets CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE=9000000 to disable
+         Claude Code's client-side context-limit check so the proxy
+         (not the client) decides whether a request is too big.
+         See docs/claude-proxy-design.md for why this is needed.
+      5. Calls the REAL claude binary, passing through your args
 
     After install, just type `claude` as usual. The proxy is invisible.
 
@@ -60,7 +64,9 @@ claude() {{
     else
         exec 3<&- 3>&-
     fi
-    ANTHROPIC_BASE_URL="http://localhost:9999" command claude "$@"
+    ANTHROPIC_BASE_URL="http://localhost:9999" \\
+    CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE="9000000" \\
+        command claude "$@"
 }}
 {WRAPPER_END}
 """
@@ -94,6 +100,7 @@ function claude {{
     }}
 
     $env:ANTHROPIC_BASE_URL = "http://localhost:$port"
+    $env:CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE = "9000000"
 
     # Call the real claude binary, bypassing this function
     $real = Get-Command claude -CommandType Application -ErrorAction SilentlyContinue |
