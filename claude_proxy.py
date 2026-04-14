@@ -94,18 +94,23 @@ LISTEN_PORT = 9999
 # tokens Anthropic adds internally).
 FAST_PATH_THRESHOLD = int(os.environ.get("CLAUDE_PROXY_FAST_BYTES", "950000"))
 
-# SHIFT_THRESHOLD is the token count above which we fire a sliding-window
-# shift: the anchor jumps forward by shift_ratio × remaining, dropping that
-# much of the oldest kept content in one monotonic move.
+# SHIFT_THRESHOLD is the count_tokens value above which we fire a
+# sliding-window shift. The anchor jumps forward by shift_ratio × remaining,
+# dropping that much of the oldest kept content in one monotonic move.
 #
-# IMPORTANT: count_tokens API systematically UNDER-reports vs actual
-# processing. We empirically observed count_tokens=912k while Anthropic's
-# real processing reported 1,148k for the same body — a 26% discrepancy.
-# We use a generous safety margin under the 1M cap.
+# IMPORTANT: count_tokens API systematically UNDER-reports vs the token
+# count Anthropic's actual /v1/messages processing uses. We empirically
+# observed a 413 "Request size exceeds model context window" at
+# count_tokens=791,826 on 2026-04-14, which means real processing tokens
+# (+ max_tokens reservation) were over the 1M cap despite count_tokens
+# reporting well under. The true under-report ratio is workload-dependent,
+# roughly 1.26x for mixed prose/code and higher for code-dense bodies.
 #
-# 900_000 threshold × ~1.1 expansion ≈ ~990_000 real tokens worst case —
-# right at the cap. Set env var lower (e.g. 800000) for more margin.
-SHIFT_THRESHOLD = int(os.environ.get("CLAUDE_PROXY_SHIFT_THRESHOLD", "900000"))
+# 700_000 threshold × ~1.3 expansion + 64k max_tokens ≈ ~974k real ≈
+# just under the 1M cap, with ~91k count_tokens margin below the known
+# fail point of 791,826. Aggressive — lower to 650_000 (or set via env
+# var) if 413s appear at this threshold.
+SHIFT_THRESHOLD = int(os.environ.get("CLAUDE_PROXY_SHIFT_THRESHOLD", "700000"))
 
 # How aggressively each shift halves. 0.5 = drop half the kept content per
 # shift. Lower = smaller drops more often; higher = bigger drops less often.
