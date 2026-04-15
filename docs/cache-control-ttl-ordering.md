@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-15
 **Bug found in:** `claude_proxy.py` — `rewrite_cache_control_markers()`
-**Symptom:** `/btw hi` fails with "Prompt is too long"; intermittent full-cache rebuilds in main session; `count_tokens` returning 400.
+**Primary symptom:** `/btw hi` fails with "Prompt is too long"; `count_tokens` returning 400 on slow-path requests.
 **Root cause:** Anthropic's TTL ordering rule violated because proxy upgrades messages to `ttl=1h` but leaves system/tools at default `ttl=5m`.
 
 This document walks through the full investigation — what we observed, the wrong hypotheses we chased, and how we landed on the correct fix. Read this if you're ever debugging "why is my cache_control doing something weird" or "why is count_tokens rejecting a request that looks fine".
@@ -18,7 +18,9 @@ This document walks through the full investigation — what we observed, the wro
 - Result: `system(5m) → messages(1h)` is the forbidden "5m then 1h" pattern. Anthropic returned 400.
 - count_tokens returned `None` → trim logic fell through to untrimmed passthrough → body ballooned to 1.8M tokens → Anthropic rejected again with "prompt too long".
 - **Fix:** when the proxy inserts its ttl=1h messages marker, also walk `system` and `tools` arrays and upgrade any existing cache_control markers to `ttl='1h'`. Single consistent TTL across the whole request.
-- **Verified:** `/btw` works, count_tokens succeeds, cache hit rate restored to 99%+.
+- **Verified:** `/btw` works; count_tokens succeeds on slow-path requests; TTL ordering errors no longer appear in proxy.log.
+
+**Note on impact:** The visible user-facing symptom is `/btw` being unusable — that's the concrete functional bug this fix closes. The other effects (occasional count_tokens failures, cascade to passthrough) added log noise and potentially some latency, but on a Claude Max flat-rate subscription the dollar-cost framing doesn't apply. If you're reading this as "the fix saves $X/day", don't — it restores a broken feature and cleans up proxy behavior, not a direct billing impact.
 
 ---
 
@@ -79,16 +81,29 @@ Two distinct 400s from Anthropic in the same turn:
 1. On `/v1/messages/count_tokens`: **TTL ordering violation**.
 2. On `/v1/messages`: **prompt too long (1.9M > 1M)**.
 
-And occasional full-cache rebuilds in otherwise healthy main-session turns:
+And a pattern in the log that initially looked like extra full-cache rebuilds:
 
 ```
-Turn N-1: cache_read=679,145  cache_create=191   out=679      ← healthy incremental
+Turn N-1: cache_read=679,145  cache_create=191   out=679       ← healthy incremental
 Turn N:   count_tokens failed (TTL violation)
-          cache_read=0        cache_create=553,574  out=2,708 ← FULL MISS, $10+ wasted
-Turn N+1: cache_read=553,574  cache_create=2,777  out=1,462   ← recovered
+          cache_read=0        cache_create=553,574  out=2,708  ← full miss
+Turn N+1: cache_read=553,574  cache_create=2,777  out=1,462    ← recovered
 ```
 
-Every `count_tokens` failure was costing us roughly $10-18 in unnecessary fresh compute because the proxy fell back to passthrough and Anthropic had to rebuild the entire KV cache from scratch.
+I initially framed these full misses as "bug-induced extra rebuilds costing ~$10 each". The user correctly pushed back on two points:
+
+1. **500k rebuilds are part of the design, not the bug.** The proxy's sliding-window ratchet deliberately fires at `SHIFT_THRESHOLD` and cuts the kept content in half, which shows up in the log as exactly this pattern (`cache_read=0`, `cache_create=~half_the_session`). That's the intended sawtooth, not a regression. Some of the `cache_read=0` turns in the log are genuine ratchet fires; others may have been TTL-cascade misses on top. From the log alone it's hard to distinguish without cross-referencing the ratchet's SHIFT events against the TTL failures.
+
+2. **Dollar-per-event framing doesn't map to Claude Max.** On a flat-rate $100/month subscription, "this rebuild costs $10" is meaningless. The real cost dimensions are quota toward the 5-hour rolling window and latency (a full miss takes several seconds of prefill that an incremental read wouldn't). User observation was that ratchet fires in practice did NOT cause visible usage-meter spikes, which suggests Max's accounting treats cache writes generously.
+
+So the honest framing of what this bug was actually costing before the fix:
+
+- `/btw hi` completely non-functional — this is the concrete user-visible bug.
+- count_tokens 400 errors filling proxy.log — hard to tell legitimate errors from cache_control noise.
+- Possible extra latency on turns where TTL cascade happened — magnitude unverified.
+- Possible quota bleed — unverified and apparently small enough to not show on the user's meter.
+
+The $10-18/event number I originally wrote was based on API per-token pricing and is **wrong for the Claude Max case**. The fix is still worth it — `/btw` is a useful feature and the log becomes debuggable again — but don't read this doc as "recovered $X/day in real money". It didn't.
 
 ---
 
@@ -275,21 +290,21 @@ Every few turns, a TTL violation + passthrough + Anthropic rejection.
 - No 400 errors
 - `/btw hi` responds normally with "Hi! What's up?"
 
-### Cost impact
+### Impact (honest version)
 
-Per-turn cost before and after:
+What this fix concretely changes:
 
-```
-Before: ~99% of turns @ $0.89/turn + ~1% of turns @ $18/turn (full miss)
-  Expected: $0.89 × 0.99 + $18 × 0.01 = $1.06/turn average
+- **`/btw hi` functionality restored.** Before the fix, any `/btw` prompt would fail with "Prompt is too long" because the cascade (TTL error → count_tokens None → untrimmed passthrough → Anthropic rejection) was firing on every `/btw` invocation. This was the primary user-visible bug.
+- **count_tokens no longer returns 400 on slow-path requests.** Proxy.log is clean enough to see real errors again.
+- **Consistency between proxy intent and actual TTL policy.** The proxy's sliding-window design assumes long cache retention (1h) — before the fix, that intent was getting silently undermined on a subset of turns where the TTL violation triggered a cascade. Now every request either has 1h TTL everywhere or nothing.
 
-After:  ~100% of turns @ $0.89/turn
-  Expected: $0.89/turn average
-```
+What this fix does NOT change:
 
-Savings: ~$0.17/turn average, or ~$170 per 1000 turns.
+- **Sawtooth ratchet fires still happen.** Those `cache_read=0, cache_create=~half` events are part of the ratchet design, not bugs. The proxy deliberately fires a shift at `SHIFT_THRESHOLD` and drops 50% of kept content. This shows up in logs as a full miss, but it's expected.
+- **No real dollar savings on Claude Max.** If you're on the $100/month subscription, cache cost is already absorbed into the flat rate. The original draft of this doc quoted "$10-18 per event" and "$170 per 1000 turns" — those numbers come from API per-token pricing and do not apply to Max. The user confirmed that ratchet fires in practice never caused visible usage-meter spikes, which backs up the read that the bug's cost impact on Max was minimal.
+- **Cache hit rate number unchanged in any dramatic way.** The main session was already running at ~99% cache hit rate before the fix (because most turns didn't trigger the TTL cascade). The fix closes the remaining leaks on the subset of turns that did.
 
-The bigger practical win is **predictability**: without the intermittent full-miss turns, session cost is flat and the occasional $18 blip disappears. Power-user sessions with long idle intervals (background tasks, thinking time) no longer cost wildly more than tool-dense interactive sessions.
+The simplest accurate summary: **`/btw` was broken and now it isn't, and the log is cleaner**. That's the whole story. Don't read a billing narrative into it.
 
 ---
 
@@ -326,11 +341,15 @@ If you're writing proxy logic, treat count_tokens as a dry-run validation, not a
 
 ### 5. The "why is it working at all" question
 
-Before the fix, the proxy was returning unconditional untrimmed bodies whenever count_tokens failed. That should mean **every** turn after a TTL violation got rejected by Anthropic. But we're sitting here, having this conversation in a session that has thousands of successful turns in its history. How?
+Before the fix, the proxy was returning unconditional untrimmed bodies whenever count_tokens failed. That should mean **every** turn after a TTL violation got rejected by Anthropic. But we were sitting there, having a long conversation with thousands of successful turns in the session's history. How?
 
-The answer: count_tokens only fails when **our** rewrite introduces a ttl=1h marker AND the upstream request already has ttl=5m markers in system/tools. If Claude Code happened to send a request where the system had no cache_control markers at all (or had 1h markers already), the rewrite produced a consistent 1h-everywhere request and count_tokens passed. That's most turns. The TTL-violating requests were a subset — roughly 1% of turns based on log counts — and each of those became a full-miss $10+ event. The session was working *despite* the bug, not because the bug was benign.
+The answer: count_tokens only fails when **our** rewrite introduces a ttl=1h marker AND the upstream request already has ttl=5m markers in system/tools. If Claude Code happened to send a request where the system had no cache_control markers at all (or had 1h markers already), the rewrite produced a consistent 1h-everywhere request and count_tokens passed. That's most turns. The TTL-violating requests were a subset — roughly 1% of turns based on log counts — and each of those turned into a passthrough-and-reject cycle. The session was working *despite* the bug, not because the bug was benign.
 
-If I hadn't specifically asked "why is it working at all?" I would have missed the full picture of cost impact.
+### 6. Don't invent economic narratives that aren't true
+
+In the first draft of this doc I wrote "$10-18 per event" and "$170 per 1000 turns savings" based on API pricing math. The user pointed out (a) they're on Claude Max flat-rate, so those numbers are meaningless, and (b) they never observed a usage-meter spike correlating with ratchet fires, so even the "quota impact" framing wasn't showing up in practice. I had produced a confident-sounding financial impact statement that was **unverified and didn't match the user's direct observation**. That's worse than admitting the fix's value is smaller than advertised.
+
+The discipline to learn: when writing up a fix, distinguish between "the concrete thing this closes" (in our case, `/btw` being unusable) and "the extrapolated impact" (everything else). Only commit confident numbers when you've actually measured them in the right billing model.
 
 ---
 
