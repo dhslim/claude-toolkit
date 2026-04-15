@@ -367,3 +367,72 @@ The discipline to learn: when writing up a fix, distinguish between "the concret
 - `claude_proxy.py` — `rewrite_cache_control_markers` now upgrades system/tools cache_control markers to ttl=1h before handling messages.
 
 Commit: [see git log for hash]
+
+---
+
+## Observation backlog — threshold & sawtooth cost
+
+Things we noticed during this investigation that are NOT bugs and NOT current fixes, but are worth keeping in mind as the proxy evolves. Revisit when there's empirical data to justify changes.
+
+### 1. `SHIFT_THRESHOLD=700000` is conservative — could potentially push higher
+
+**Current state:** The proxy trims when count_tokens reports ≥ 700k tokens. With Anthropic's ~1.26-1.4x expansion from count_tokens to actual processed tokens, plus the 64k `max_tokens` reservation, this lands around 974k real tokens — just under the 1M model cap.
+
+**User observation (live session):** The Claude Code status bar was showing ~63% when the proxy log reported ~503k kept tokens. That's `input_tokens ≈ 630k` at trigger time. The Anthropic-side trigger point is roughly at 87% of the 1M model window, which means we have ~130k real tokens of headroom left unused per fire cycle.
+
+**Theoretical improvement:** Push the threshold so the proxy fires closer to 95% of the real limit instead of ~87%. Each fire cycle would buy ~40 extra turns of runway before the next fire.
+
+**Why we didn't do it yet:** The 700k value is not arbitrary — it was lowered from 900k in an earlier commit after observing 413s at count_tokens=791,826. The expansion ratio depends on workload (code-dense content expands more, images even more). A fixed magic number high enough to hit 95% on text-heavy turns may hit 103% on code-heavy turns and trigger 413. The cost of a single 413 (retry cascade, cache invalidation, user latency spike) likely exceeds the benefit of 40 extra turns per cycle.
+
+**What would justify pushing:**
+- Collect the actual `input_tokens / count_tokens` ratio across many turns and workloads.
+- Observe whether the ratio is stable enough that a safety margin of +5% is sufficient, vs. the current +30% margin.
+- Implement an adaptive threshold that starts conservative and tightens based on rolling ratio observations.
+
+**Realistic target:** Something like 90-92% of real limit, not 95%. The extra 3-5% headroom would absorb workload variance without giving up the aggressive-margin safety.
+
+### 2. Sawtooth fires are cheaper than the math suggests
+
+**User observation (live session):** Watching ratchet fires happen in real-time, the user did NOT notice:
+- Usage meter spikes
+- Noticeable latency jumps
+- Any user-visible penalty
+
+This contradicts the naive theoretical cost analysis (550k fresh prefill = ~6 second prefill + significant cost).
+
+**Proxy log evidence:**
+```
+Rebuild turn:   cache_read=0, cache_create=553,574  total=48468ms  stream=42281ms  (non-stream ~6s)
+Normal turn:    cache_read=622,254, cache_create=2,101  total=16516ms  stream=10563ms  (non-stream ~6s)
+```
+
+The non-stream portion (setup + prefill) is **roughly the same** for a rebuild turn and a normal cache-hit turn. Both ~6 seconds. The difference in total time is entirely in how long the output takes to stream, which is driven by output length, not by cache state.
+
+**Hypotheses for why rebuild is cheaper than expected:**
+- GPU prefill throughput is higher than we modeled (tens of thousands of tokens/second on H100/H200 class hardware).
+- Anthropic's internal cache layer may have implicit dedup / radix-tree sharing that's working in our favor even when our explicit markers miss.
+- Cache read has its own I/O cost (loading KV state into active memory) that narrows the gap with fresh compute.
+- Claude Max's flat-rate accounting absorbs cache_create without pushing the usage meter noticeably.
+
+**Implication for design:** The sawtooth cost we feared is much smaller than the theory predicted. This shifts the risk/benefit calculation on threshold pushing:
+- **Before observation:** "Fires are expensive, so minimize fires with a big 50% drop — pay the threshold-too-conservative tax to keep fire count low."
+- **After observation:** "Fires are cheap, so minimize unnecessary runway waste — push the threshold higher and accept more frequent but harmless fires."
+
+**Open question:** How much of the "cheap rebuild" observation is specific to Claude Max accounting vs. fundamental API behavior? If a pay-per-token user ran the same workload, would they see a bigger cost spike that we just don't see because our billing is flat? The answer determines whether this observation generalizes or is Max-specific.
+
+### 3. Things to track over future sessions
+
+If we want to eventually make data-driven changes, log these across multiple sessions:
+
+- Count of ratchet fires per session
+- `input_tokens / count_tokens` ratio on slow-path requests (compute rolling mean, stddev)
+- Non-stream time on fire turns vs. normal turns (is the prefill cost really the same, or is there session-specific variance?)
+- Whether any 413s slip through despite the current 700k threshold
+- Cache hit rate on the turn immediately after a fire (should be ~100% if the new prefix is being cached correctly)
+- Distinction between ratchet fires (`cache_read=0` because the anchor moved) and "mystery misses" (`cache_read=0` for any other reason — would indicate a cache-invalidation bug)
+
+With enough data, the threshold could be tuned with confidence rather than conservatism. Until then, 700k is the empirically-safe floor and premature optimization is the opposite of what this proxy needs.
+
+### Discipline
+
+**Do not touch `SHIFT_THRESHOLD` or add adaptive logic based on theoretical reasoning alone.** Both of these observations came from watching real behavior during a long session. Future changes should be justified by similar concrete observations, not "I ran the math and it should be fine". The proxy's stability over the past weeks has been worth more than any incremental efficiency gain, and aggressive optimization has a history of trading stability for marginal wins that don't materialize in practice.
