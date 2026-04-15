@@ -594,19 +594,36 @@ def rewrite_cache_control_markers(body: dict) -> None:
     """Replace any existing messages-level cache_control with exactly one new
     marker on the last cacheable block of the last message, with ttl=1h.
 
-    Leaves `system` and `tools` cache_control alone — Claude Code's system
-    breakpoints are load-bearing and independent of our sliding window.
+    Also UPGRADES any existing cache_control markers in `system` and `tools`
+    fields to ttl=1h. Anthropic enforces ordering: processing order is
+    tools → system → messages, and a ttl='1h' block cannot come after a
+    ttl='5m' block. Since we place ttl=1h on messages (which is processed
+    last), everything that comes before it (system, tools) must also be 1h
+    — otherwise count_tokens and /v1/messages both return 400.
 
     Mutates `body` in place. If the last message has a string content,
     converts it to block form so we can attach the marker.
     """
+    # Upgrade any existing system/tools cache_control markers to ttl=1h.
+    # Claude Code sets these with default ttl (=5m). Without this upgrade,
+    # the ordering rule is violated when we add ttl=1h on messages below.
+    for field in ("system", "tools"):
+        items = body.get(field)
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            cc = item.get("cache_control")
+            if isinstance(cc, dict):
+                cc["ttl"] = "1h"
+
     messages = body.get("messages")
     if not isinstance(messages, list) or not messages:
         return
 
     # Strip ALL existing cache_control on message content blocks so we don't
-    # accumulate stale markers from prior Claude Code insertions. We leave
-    # system/tools cache_control alone (those aren't inside `messages`).
+    # accumulate stale markers from prior Claude Code insertions.
     for m in messages:
         if not isinstance(m, dict):
             continue
