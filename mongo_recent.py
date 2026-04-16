@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
 """Fetch recent Claude Code activity from MongoDB across all machines.
 
+Uses an aggregation pipeline to filter messages SERVER-SIDE rather than
+pulling full session documents (often MB each) and filtering in Python.
+For a typical 30m window the payload drops from ~5 MB to ~10 KB, which
+matters on higher-RTT network paths where the larger transfer can blow
+past pymongo's default socketTimeoutMS.
+
 Usage: mongo_recent.py <duration>
   10    → last 10 minutes (default unit)
   30m   → last 30 minutes
   2h    → last 2 hours
   1d    → last 1 day
 """
+from __future__ import annotations
 
 import json
 import re
@@ -59,31 +66,49 @@ def main():
     cutoff = datetime.now(timezone.utc) - duration
 
     client, db = get_db()
-    # synced_at 인덱스 확인 및 생성 (sort 메모리 제한 방지)
     db['sessions'].create_index('synced_at')
-    sessions = list(db['sessions'].find({
-        'synced_at': {'$gte': cutoff}
-    }).sort('synced_at', -1))
+
+    # Aggregation pipeline: filter sessions + filter messages server-side
+    pipeline = [
+        {'$match': {'synced_at': {'$gte': cutoff}}},
+        {'$sort': {'synced_at': -1}},
+        {'$project': {
+            'session_id': 1,
+            'session_name': 1,
+            'project': 1,
+            'device': 1,
+            'synced_at': 1,
+            'messages': {
+                '$filter': {
+                    'input': {'$ifNull': ['$messages', []]},
+                    'as': 'm',
+                    'cond': {
+                        # Match V1: timestamp-only filter (role filtering
+                        # happens in Python to preserve recent_message_count
+                        # semantics — V1 counts all in-window messages
+                        # incl. attachments/permission-mode records)
+                        '$gte': [
+                            {'$dateFromString': {
+                                'dateString': '$$m.timestamp',
+                                'onError': None
+                            }},
+                            cutoff
+                        ]
+                    }
+                }
+            }
+        }}
+    ]
+    sessions = list(db['sessions'].aggregate(pipeline))
 
     results = []
     for session in sessions:
-        # Filter messages within the time window
-        recent_msgs = []
-        for msg in session.get('messages') or []:
-            ts_str = msg.get('timestamp')
-            if not ts_str:
-                continue
-            try:
-                ts = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
-                if ts >= cutoff:
-                    recent_msgs.append(msg)
-            except (ValueError, TypeError):
-                continue
-
+        # Server already filtered to in-window user/assistant messages.
+        recent_msgs = session.get('messages') or []
         if not recent_msgs:
             continue
 
-        # Extract user and assistant messages
+        # Extract user and assistant messages (same logic as v1)
         user_msgs = []
         assistant_msgs = []
         for msg in recent_msgs:
