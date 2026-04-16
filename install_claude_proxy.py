@@ -213,7 +213,33 @@ def uninstall_from_file(rc_path: Path) -> bool:
 
 # ---------- main ----------
 
+def preflight_check_deps() -> None:
+    """Verify claude_proxy's runtime dependencies are importable before we
+    touch the shell rc file. A half-installed wrapper that points at a
+    proxy that can't start is worse than a clear upfront error.
+    """
+    missing: list[str] = []
+    for mod in ("httpx", "fastapi", "uvicorn"):
+        try:
+            __import__(mod)
+        except ImportError:
+            missing.append(mod)
+    if missing:
+        req_path = Path(__file__).resolve().parent / "requirements.txt"
+        print("ERROR: claude_proxy dependencies not installed in this Python:", file=sys.stderr)
+        print(f"  missing: {', '.join(missing)}", file=sys.stderr)
+        print(f"  python:  {PYTHON_BIN}", file=sys.stderr)
+        print(file=sys.stderr)
+        print("Fix:", file=sys.stderr)
+        print(f'  "{PYTHON_BIN}" -m pip install -r "{req_path}"', file=sys.stderr)
+        print(file=sys.stderr)
+        print("Then re-run this installer.", file=sys.stderr)
+        sys.exit(1)
+
+
 def cmd_install() -> None:
+    preflight_check_deps()
+
     os_name = detect_os()
     real_claude = find_real_claude()
 
