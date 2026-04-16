@@ -5,6 +5,8 @@ Only removes the lock if the PID in the file matches our own claude ancestor.
 This prevents cfork/cread sessions from deleting the original session's lock.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import platform

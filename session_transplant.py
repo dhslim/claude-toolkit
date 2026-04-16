@@ -39,6 +39,8 @@ What it does NOT do (intentionally):
     - Delete the source
 """
 
+from __future__ import annotations
+
 import json
 import subprocess
 import sys
