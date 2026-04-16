@@ -41,11 +41,12 @@ If it fails with a TLS/SSL error, the Python or OpenSSL version may be too old. 
 
 ### 5. Configure ~/.claude/settings.json
 
-Read `settings.json` from this repo as a reference. It contains the complete structure including hooks, permissions, status line config, and other settings.
+This repo has platform-specific settings templates in `platform/<os>/settings.json`:
+- **Windows**: `platform/windows/settings.json`
+- **Linux**: `platform/linux/settings.json`
+- **macOS**: `platform/macos/settings.json`
 
-Create or update `~/.claude/settings.json` to match the structure in the reference file, but **replace all hardcoded paths** with absolute paths appropriate for the current machine:
-- Replace all python/pythonw paths with the absolute path to the venv python in this repo
-- Replace all script paths with the absolute path to each script in this repo
+Pick the template that matches the current OS. Create or update `~/.claude/settings.json` to match its structure, but **replace all `{{REPO_DIR}}` placeholders** with the absolute path to this repo's directory.
 
 On Windows there are two python executables in the venv:
 - pythonw.exe — runs without opening a console window (use for background/async hooks)
@@ -129,15 +130,7 @@ This enables the `/transplant` slash command in Claude Code, which clones a sess
 
 ### 11. Recommended environment variable
 
-Add `CLAUDE_CODE_NO_FLICKER=1` to the `env` block in `~/.claude/settings.json`. This is the default behavior since Claude Code v2.1.89, but setting it explicitly future-proofs against the default ever flipping. It enables fullscreen rendering and the in-app `Ctrl+O → [` history-dump trick.
-
-```json
-{
-  "env": {
-    "CLAUDE_CODE_NO_FLICKER": "1"
-  }
-}
-```
+`CLAUDE_CODE_NO_FLICKER=1` is already included in the `env` block of the platform settings templates (`platform/linux/settings.json`, `platform/macos/settings.json`, `platform/windows/settings.json`), so a standard install via step 3 picks it up automatically — no manual step needed. This is the default behavior since Claude Code v2.1.89, but setting it explicitly future-proofs against the default ever flipping. It enables fullscreen rendering and the in-app `Ctrl+O → [` history-dump trick.
 
 See `docs/scrollback.md` in this repo for the full explanation of fullscreen mode, scrollback behavior, and the `Ctrl+Home` / `Ctrl+O` navigation workflow.
 

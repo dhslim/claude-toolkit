@@ -1,0 +1,89 @@
+{
+  "permissions": {
+    "defaultMode": "bypassPermissions"
+  },
+  "skipDangerousModePermissionPrompt": true,
+  "env": {
+    "CLAUDE_CODE_NO_FLICKER": "1"
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{REPO_DIR}}/.venv/bin/python {{REPO_DIR}}/hook_sync.py",
+            "timeout": 30000,
+            "async": true
+          },
+          {
+            "type": "command",
+            "command": "{{REPO_DIR}}/.venv/bin/python {{REPO_DIR}}/quiz_check.py",
+            "timeout": 5000
+          },
+          {
+            "type": "command",
+            "command": "{{REPO_DIR}}/.venv/bin/python {{REPO_DIR}}/hook_notify.py",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{REPO_DIR}}/.venv/bin/python {{REPO_DIR}}/hook_turn_start.py",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{REPO_DIR}}/.venv/bin/python {{REPO_DIR}}/hook_sync.py",
+            "timeout": 10000,
+            "async": true
+          },
+          {
+            "type": "command",
+            "command": "{{REPO_DIR}}/.venv/bin/python {{REPO_DIR}}/hook_session_guard_cleanup.py",
+            "timeout": 5000,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{REPO_DIR}}/.venv/bin/python {{REPO_DIR}}/hook_session_guard.py",
+            "timeout": 5000
+          },
+          {
+            "type": "command",
+            "command": "{{REPO_DIR}}/.venv/bin/python {{REPO_DIR}}/sync_conversations.py --scan",
+            "timeout": 60000,
+            "async": true
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/statusline.sh",
+    "padding": 1
+  },
+  "autoUpdatesChannel": "latest"
+}

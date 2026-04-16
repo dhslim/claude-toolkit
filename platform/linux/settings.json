@@ -2,6 +2,10 @@
   "permissions": {
     "defaultMode": "bypassPermissions"
   },
+  "skipDangerousModePermissionPrompt": true,
+  "env": {
+    "CLAUDE_CODE_NO_FLICKER": "1"
+  },
   "hooks": {
     "Stop": [
       {
@@ -9,18 +13,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "C:/Users/user/Desktop/claude-toolkit/.venv/Scripts/pythonw.exe C:/Users/user/Desktop/claude-toolkit/hook_sync.py",
+            "command": "{{REPO_DIR}}/.venv/bin/python {{REPO_DIR}}/hook_sync.py",
             "timeout": 30000,
             "async": true
           },
           {
             "type": "command",
-            "command": "C:/Users/user/Desktop/claude-toolkit/.venv/Scripts/python.exe C:/Users/user/Desktop/claude-toolkit/quiz_check.py",
+            "command": "{{REPO_DIR}}/.venv/bin/python {{REPO_DIR}}/quiz_check.py",
             "timeout": 5000
           },
           {
             "type": "command",
-            "command": "C:/Users/user/Desktop/claude-toolkit/.venv/Scripts/pythonw.exe C:/Users/user/Desktop/claude-toolkit/hook_notify.py",
+            "command": "{{REPO_DIR}}/.venv/bin/python {{REPO_DIR}}/hook_notify.py",
             "async": true
           }
         ]
@@ -32,7 +36,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "C:/Users/user/Desktop/claude-toolkit/.venv/Scripts/pythonw.exe C:/Users/user/Desktop/claude-toolkit/hook_turn_start.py",
+            "command": "{{REPO_DIR}}/.venv/bin/python {{REPO_DIR}}/hook_turn_start.py",
             "async": true
           }
         ]
@@ -44,13 +48,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "C:/Users/user/Desktop/claude-toolkit/.venv/Scripts/pythonw.exe C:/Users/user/Desktop/claude-toolkit/hook_sync.py",
+            "command": "{{REPO_DIR}}/.venv/bin/python {{REPO_DIR}}/hook_sync.py",
             "timeout": 10000,
             "async": true
           },
           {
             "type": "command",
-            "command": "C:/Users/user/Desktop/claude-toolkit/.venv/Scripts/pythonw.exe C:/Users/user/Desktop/claude-toolkit/hook_session_guard_cleanup.py",
+            "command": "{{REPO_DIR}}/.venv/bin/python {{REPO_DIR}}/hook_session_guard_cleanup.py",
             "timeout": 5000,
             "async": true
           }
@@ -63,12 +67,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "C:/Users/user/Desktop/claude-toolkit/.venv/Scripts/python.exe C:/Users/user/Desktop/claude-toolkit/hook_session_guard.py",
+            "command": "{{REPO_DIR}}/.venv/bin/python {{REPO_DIR}}/hook_session_guard.py",
             "timeout": 5000
           },
           {
             "type": "command",
-            "command": "C:/Users/user/Desktop/claude-toolkit/.venv/Scripts/pythonw.exe C:/Users/user/Desktop/claude-toolkit/sync_conversations.py --scan",
+            "command": "{{REPO_DIR}}/.venv/bin/python {{REPO_DIR}}/sync_conversations.py --scan",
             "timeout": 60000,
             "async": true
           }
@@ -81,7 +85,5 @@
     "command": "~/.claude/statusline.sh",
     "padding": 1
   },
-  "enabledPlugins": {},
-  "autoUpdatesChannel": "latest",
-  "skipDangerousModePermissionPrompt": true
+  "autoUpdatesChannel": "latest"
 }

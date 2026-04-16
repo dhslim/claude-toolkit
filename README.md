@@ -33,6 +33,10 @@ claude-toolkit/
 ├── requirements.txt       # pymongo, python-dotenv
 ├── .env.example
 ├── INSTALL.md             # Install prompt for Claude Code
+├── platform/
+│   ├── windows/settings.json  # Hook config template (pythonw.exe / python.exe)
+│   ├── linux/settings.json    # Hook config template (.venv/bin/python)
+│   └── macos/settings.json    # Hook config template (.venv/bin/python)
 └── README.md
 ```
 
