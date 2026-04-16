@@ -36,7 +36,7 @@ def get_db():
     client = MongoClient(uri,
                          serverSelectionTimeoutMS=10000,
                          connectTimeoutMS=10000,
-                         socketTimeoutMS=30000,
+                         socketTimeoutMS=120000,
                          retryWrites=True,
                          retryReads=True)
     db = client['conversation-warehouse']
