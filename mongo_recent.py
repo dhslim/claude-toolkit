@@ -12,6 +12,15 @@ Usage: mongo_recent.py <duration>
   30m   → last 30 minutes
   2h    → last 2 hours
   1d    → last 1 day
+
+Note: this is a ROLLING window from `datetime.now(UTC) - duration`, not
+a calendar-day cutoff. `/mongo 1d` run at 10:00 KST returns everything
+since 10:00 KST yesterday — NOT everything since 00:00 KST yesterday.
+For use cases that expect "yesterday's activity" as a calendar day
+(e.g. daily quiz), this means late-night activity from 2 days ago may
+still appear and early-morning activity from yesterday may be missing.
+Left as rolling-window by design (2026-04); revisit if calendar-day
+semantics become important.
 """
 from __future__ import annotations
 
