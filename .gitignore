@@ -6,6 +6,7 @@ __pycache__/
 sync.log
 sync.log.lock
 sync_test*.log
+strip.log
 *.stackdump
 excalidraw.log
 last-hook-stdin.json
