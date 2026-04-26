@@ -124,7 +124,6 @@ def main():
             text = extract_text(msg.get('content', ''))
             if not text or '<local-command' in text:
                 continue
-            text = text[:500]  # truncate long messages
             if msg.get('role') == 'user':
                 user_msgs.append(text)
             elif msg.get('role') == 'assistant':
@@ -137,8 +136,8 @@ def main():
             'device': session.get('device', '?'),
             'synced_at': str(session.get('synced_at', '?')),
             'recent_message_count': len(recent_msgs),
-            'user_messages': user_msgs[:20],
-            'assistant_messages': assistant_msgs[:20],
+            'user_messages': user_msgs,
+            'assistant_messages': assistant_msgs,
         })
 
     client.close()
