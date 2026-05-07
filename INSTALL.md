@@ -31,7 +31,14 @@ If .env does not already exist in this directory, ask me for my MongoDB URI, the
 
   MONGODB_URI=<the URI I provide>
 
-If .env already exists, skip this step.
+If .env already exists, skip the creation step.
+
+In all cases (whether .env was just created or already existed), restrict its permissions so only the owner can read it:
+
+  chmod 600 .env  # macOS/Linux
+  icacls .env /inheritance:r /grant:r "%USERNAME%:F"  # Windows
+
+The MongoDB URI contains the database password embedded in plain text (`mongodb+srv://user:password@cluster.../`). On a shared machine, default `644` permissions would let other users on the same host read your DB password. `600` (owner read/write only) prevents this.
 
 ### 4. Test the connection
 
