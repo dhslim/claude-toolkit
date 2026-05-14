@@ -91,5 +91,7 @@
     "padding": 1
   },
   "autoUpdatesChannel": "latest",
-  "skipDangerousModePermissionPrompt": true
+  "skipDangerousModePermissionPrompt": true,
+  "tui": "fullscreen",
+  "autoScrollEnabled": false
 }

@@ -85,5 +85,7 @@
     "command": "~/.claude/statusline.sh",
     "padding": 1
   },
-  "autoUpdatesChannel": "latest"
+  "autoUpdatesChannel": "latest",
+  "tui": "fullscreen",
+  "autoScrollEnabled": false
 }
