@@ -858,7 +858,8 @@ async def proxy(request: Request, full_path: str):
     if is_messages and body_size >= FAST_PATH_THRESHOLD:
         # One-shot probe: capture the next slow-path /v1/messages body for
         # offline inspection of cache_control usage. Fires once per process.
-        if not _probe_fired:
+        # Off by default; set CLAUDE_PROXY_PROBE_DUMP=1 to re-enable.
+        if not _probe_fired and os.environ.get("CLAUDE_PROXY_PROBE_DUMP"):
             _probe_dump_once(body)
         # Look up this session's sliding-window anchor (if any) before trimming.
         # Session key = hash of first real user message text. Stable until
