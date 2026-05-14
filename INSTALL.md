@@ -141,44 +141,40 @@ This enables the `/transplant` slash command in Claude Code, which clones a sess
 
 See `docs/scrollback.md` in this repo for the full explanation of fullscreen mode, scrollback behavior, and the `Ctrl+Home` / `Ctrl+O` navigation workflow.
 
-### 12. Recommended VS Code terminal settings
+### 12. Apply VS Code settings + keybindings
 
-If using Claude Code via VS Code's integrated terminal, add the following to your VS Code user settings (`%APPDATA%\Code\User\settings.json` on Windows, `~/.config/Code/User/settings.json` on Linux, `~/Library/Application Support/Code/User/settings.json` on Mac):
+This step **applies** recommended VS Code settings and keybindings to the user's local config — it doesn't just document them. Skip this step if Claude Code isn't being used via VS Code's integrated terminal.
 
-```json
+**Important:** VS Code stores user settings on the machine where the IDE runs, not on a remote server. If this install is being run via VS Code Remote-SSH, you must run it on the LOCAL machine for these file paths to resolve correctly. If you can't reach the user's local settings file (e.g., you're on the remote side of an SSH session), skip this step and tell the user to run the install locally on their laptop for steps 12a and 12b.
+
+#### Locate the two files (OS-dependent)
+
+| OS | settings.json | keybindings.json |
+|---|---|---|
+| Windows | `%APPDATA%\Code\User\settings.json` | `%APPDATA%\Code\User\keybindings.json` |
+| macOS | `~/Library/Application Support/Code/User/settings.json` | `~/Library/Application Support/Code/User/keybindings.json` |
+| Linux | `~/.config/Code/User/settings.json` | `~/.config/Code/User/keybindings.json` |
+
+If either file doesn't exist, create the parent directory and start from `{}` for settings.json or `[]` for keybindings.json.
+
+#### 12a. Merge into settings.json
+
+Read the existing settings.json. **Preserve all existing keys that aren't in the list below** — only overwrite the specific keys here. Then write back:
+
+```jsonc
 {
+  // Terminal — scrollback and rendering
   "terminal.integrated.scrollback": 250000,
   "terminal.integrated.persistentSessionScrollback": 250000,
-  "terminal.integrated.gpuAcceleration": "canvas"
-}
-```
+  "terminal.integrated.gpuAcceleration": "canvas",
 
-| Setting | Why |
-|---|---|
-| `scrollback: 250000` | Default 1000 is too small for any long Claude session. 250k uses ~40 MB per terminal max. Buffer grows lazily — no upfront cost. |
-| `persistentSessionScrollback: 250000` | Default 100. Without this, scrollback shrinks to 100 lines on every VS Code window reload. Match it to `scrollback`. |
-| `gpuAcceleration: "canvas"` | Default `"auto"` (WebGL) has lazy/batched repaints that cause `Ctrl+End` to require a follow-up keystroke to render. Canvas does immediate-mode painting which is more responsive. Costs almost nothing on modern hardware. |
-
-Also add these editor settings:
-
-```json
-{
+  // Editor behavior
   "workbench.editor.enablePreview": false,
   "files.readonlyInclude": {
     "**/*": true
-  }
-}
-```
+  },
 
-| Setting | Why |
-|---|---|
-| `enablePreview: false` | Clicking a file in the sidebar opens it in its own tab instead of replacing the current preview tab. |
-| `files.readonlyInclude: {"**/*": true}` | Opens all files in read-only mode by default (lock icon on tab). Prevents accidental edits. Toggle per-file with `Cmd+Shift+P` → "Toggle File Read-only". |
-
-Also add these settings to disable VS Code's built-in Copilot/AI features (since we use Claude Code instead):
-
-```json
-{
+  // Disable built-in Copilot/AI features (we use Claude Code instead)
   "workbench.startupEditor": "none",
   "workbench.welcomePage.enabled": false,
   "chat.disableAIFeatures": true,
@@ -193,8 +189,17 @@ Also add these settings to disable VS Code's built-in Copilot/AI features (since
 }
 ```
 
+VS Code's settings.json supports JSON-with-comments (JSONC). If the existing file has comments, preserve them when possible. If your tooling can't preserve comments cleanly, ask the user before stripping them, and offer to back up the original to `settings.json.bak` first.
+
+#### Why each settings.json entry
+
 | Setting | Why |
 |---|---|
+| `terminal.integrated.scrollback: 250000` | Default 1000 is too small for any long Claude session. 250k uses ~40 MB per terminal max. Buffer grows lazily — no upfront cost. |
+| `terminal.integrated.persistentSessionScrollback: 250000` | Default 100. Without this, scrollback shrinks to 100 lines on every VS Code window reload. Match it to `scrollback`. |
+| `terminal.integrated.gpuAcceleration: "canvas"` | Default `"auto"` (WebGL) has lazy/batched repaints that cause `Ctrl+End` to require a follow-up keystroke to render. Canvas does immediate-mode painting which is more responsive. Costs almost nothing on modern hardware. |
+| `workbench.editor.enablePreview: false` | Clicking a file in the sidebar opens it in its own tab instead of replacing the current preview tab. |
+| `files.readonlyInclude: {"**/*": true}` | Opens all files in read-only mode by default (lock icon on tab). Prevents accidental edits. Toggle per-file with `Cmd+Shift+P` → "Toggle File Read-only". |
 | `workbench.startupEditor: "none"` | Disables the welcome tab on startup. |
 | `workbench.welcomePage.enabled: false` | Disables the welcome page entirely. |
 | `chat.disableAIFeatures: true` | Nuclear option — disables and hides ALL built-in AI features (Copilot chat, inline suggestions, agent panel). Since VS Code 1.100+, Copilot is built-in and cannot be uninstalled as an extension. This is the only way to fully suppress it. |
@@ -207,12 +212,17 @@ Also add these settings to disable VS Code's built-in Copilot/AI features (since
 | `github.copilot.nextEditSuggestions.enabled: false` | Disables next-edit predictions. |
 | `workbench.secondarySideBar.visible: false` | Hides the secondary sidebar where the Copilot chat panel lives. |
 
-**Note:** Even with all these settings, the Copilot and Claude Code secondary sidebar may still appear when opening a **new folder** for the first time — this is a [known VS Code bug (#247175)](https://github.com/microsoft/vscode/issues/247175). VS Code stores sidebar visibility in per-workspace state, not in settings.json. Close it with `Cmd+Option+B` (Mac) or `Ctrl+Alt+B` (Windows) once per workspace — it stays closed after that.
+**Note:** Even with all these settings, the Copilot/Claude Code secondary sidebar may still appear when opening a **new folder** for the first time — known [VS Code bug #247175](https://github.com/microsoft/vscode/issues/247175). VS Code stores sidebar visibility in per-workspace state, not in settings.json. The user can close it once per workspace with `Cmd+Option+B` (Mac) / `Ctrl+Alt+B` (Windows) and it stays closed.
 
-Also add the following keybindings to VS Code's `keybindings.json` (`Cmd+Shift+P` → "Preferences: Open Keyboard Shortcuts (JSON)"):
+#### 12b. Merge into keybindings.json
 
-```json
+keybindings.json is a JSON array of binding objects, not an object. Read it, then **for each binding below, remove any existing entry with the same `key` AND same `command` before appending** (to avoid duplicates if the install runs again). Then write back.
+
+Bindings to add on **all** platforms:
+
+```jsonc
 [
+  // Unbind Ctrl+O so the terminal receives it (for Claude Code's Ctrl+O → [ transcript dump)
   {
     "key": "ctrl+o",
     "command": "-workbench.action.files.openFile"
@@ -220,45 +230,50 @@ Also add the following keybindings to VS Code's `keybindings.json` (`Cmd+Shift+P
 ]
 ```
 
+Bindings to add **only on macOS**:
+
+```jsonc
+[
+  // Make Cmd+J FOCUS the terminal instead of TOGGLING it
+  {
+    "key": "cmd+j",
+    "command": "workbench.action.terminal.focus",
+    "when": "!terminalFocus"
+  },
+  {
+    "key": "cmd+j",
+    "command": "-workbench.action.togglePanel"
+  }
+]
+```
+
+Bindings to add **only on Windows/Linux**:
+
+```jsonc
+[
+  // Make Ctrl+J FOCUS the terminal instead of TOGGLING it
+  {
+    "key": "ctrl+j",
+    "command": "workbench.action.terminal.focus",
+    "when": "!terminalFocus"
+  },
+  {
+    "key": "ctrl+j",
+    "command": "-workbench.action.togglePanel"
+  }
+]
+```
+
+#### Why each keybinding
+
 | Keybinding | Why |
 |---|---|
 | Unbind `Ctrl+O` | VS Code's default `Ctrl+O` is "Open File", which intercepts the keystroke before it reaches the terminal. Without unbinding it, `Ctrl+O → [` (Claude Code's transcript dump) won't work. |
+| `Cmd+J` / `Ctrl+J` → focus terminal | Default behavior toggles the panel (shows/hides). This changes it to always focus the terminal without ever hiding it. When running Claude Code in the terminal, you never want this key combo to hide the terminal — you just want to jump to it. |
 
-Also make `Cmd+J` (Mac) / `Ctrl+J` (Windows) **focus** the terminal instead of **toggling** it. The default toggle behavior hides the terminal if it's already focused, which is annoying when you're switching between editor and terminal frequently.
+#### Verification
 
-Mac:
-```json
-[
-  {
-    "key": "cmd+j",
-    "command": "workbench.action.terminal.focus",
-    "when": "!terminalFocus"
-  },
-  {
-    "key": "cmd+j",
-    "command": "-workbench.action.togglePanel"
-  }
-]
-```
-
-Windows:
-```json
-[
-  {
-    "key": "ctrl+j",
-    "command": "workbench.action.terminal.focus",
-    "when": "!terminalFocus"
-  },
-  {
-    "key": "ctrl+j",
-    "command": "-workbench.action.togglePanel"
-  }
-]
-```
-
-| Keybinding | Why |
-|---|---|
-| `Cmd+J` / `Ctrl+J` → focus terminal | Default behavior toggles the panel (shows/hides). This changes it to always focus the terminal without ever hiding it. When you're running Claude Code in the terminal, you never want `Cmd+J` to hide the terminal — you just want to jump to it. |
+After writing both files, tell the user: "VS Code settings + keybindings applied. **Reload the VS Code window** (`Cmd/Ctrl+Shift+P` → 'Developer: Reload Window') for them to take effect."
 
 ### 13. Verify
 
