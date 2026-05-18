@@ -14,32 +14,55 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 LOG_FILE = SCRIPT_DIR / 'sync.log'
 LOCK_FILE = SCRIPT_DIR / 'sync.log.lock'
+IS_WINDOWS = sys.platform == 'win32'
 
 sys.path.insert(0, str(SCRIPT_DIR))
+
+
+def _acquire_lock(lock_fd):
+    """Acquire exclusive lock on lock_fd. Returns True on success."""
+    try:
+        if IS_WINDOWS:
+            import msvcrt
+            msvcrt.locking(lock_fd.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return True
+    except (OSError, PermissionError, BlockingIOError):
+        return False
+
+
+def _release_lock(lock_fd):
+    """Release lock on lock_fd. Silently ignore errors."""
+    try:
+        if IS_WINDOWS:
+            import msvcrt
+            msvcrt.locking(lock_fd.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        pass
 
 
 def log(msg):
     """Append to sync.log using a lockfile to prevent corruption."""
     ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
     line = f'[{ts}] {msg}\n'
-    import msvcrt
     lock_fd = None
     try:
-        # Acquire exclusive lock via lockfile
         lock_fd = open(LOCK_FILE, 'w')
-        msvcrt.locking(lock_fd.fileno(), msvcrt.LK_NBLCK, 1)
+        _acquire_lock(lock_fd)
     except (OSError, PermissionError):
-        # If we can't lock, write anyway — better than losing the log
+        # If we can't open the lockfile, write the log anyway — better than losing it
         pass
     try:
         with open(LOG_FILE, 'a', encoding='utf-8') as f:
             f.write(line)
     finally:
         if lock_fd:
-            try:
-                msvcrt.locking(lock_fd.fileno(), msvcrt.LK_UNLCK, 1)
-            except OSError:
-                pass
+            _release_lock(lock_fd)
             lock_fd.close()
 
 
