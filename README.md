@@ -180,6 +180,22 @@ What it leaves alone (intentional):
 - Skill file: `~/.claude/skills/transplant/SKILL.md`
 - Script: `session_transplant.py`
 
+## `/grill-me` Skill — Interactive Quizmaster
+
+User-invoked slash command that turns Claude into a tough-but-fair technical interviewer. Give it something to grill you on — a topic, a file/module, `this PR`, `this diff`, a commit, or just the current branch's changes — optionally with a difficulty/mode hint (`hard`, `brutal`, `interview`, `FAANG-style`, `quick`, `warmup`, `rapid fire`). Claude gathers the source material, then asks one question at a time, evaluates each answer (tagging it solid / shaky / partial / gap), probes deeper on shallow answers, supports hint requests for partial credit, and ends with a debrief of strengths and weak spots to review.
+
+```
+/grill-me this PR
+/grill-me sync_conversations.py hard
+/grill-me "MongoDB write concern" interview
+/grill-me                 # offers to grill on the current branch's changes
+```
+
+Distinct from `/pushback` (which is one-shot adversarial review of *your* claim); `/grill-me` is a multi-turn quiz where Claude evaluates *your* answers.
+
+- Skill file: `~/.claude/skills/grill-me/SKILL.md`
+- Pure instructions — no script, no env vars, no path placeholders
+
 ## MongoDB Schema
 
 ### sessions collection

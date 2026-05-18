@@ -144,13 +144,22 @@ Copy the skill template from this repo to the global skills directory:
 
 This enables the `/pushback` slash command in Claude Code. Running `/pushback <message>` engages critically with that specific claim or proposal; running `/pushback` alone re-examines the assistant's previous response and surfaces its weakest points. Designed to counteract the default helpful-assistant tendency to nod along when it should challenge.
 
-### 12. Recommended environment variable
+### 12. Install /grill-me skill
+
+Copy the skill template from this repo to the global skills directory:
+
+1. Create `~/.claude/skills/grill-me/SKILL.md`
+2. Use the template from `skills/grill-me/SKILL.md` in this repo as-is (no placeholder substitution needed — pure instruction text)
+
+This enables the `/grill-me` slash command in Claude Code, an interactive quiz where Claude grills you on a topic, file, PR, diff, commit, or concept to test and deepen your understanding — optionally calibrated with a difficulty/mode hint (`hard`, `brutal`, `interview`, `quick`, `rapid fire`). E.g. `/grill-me this PR`, `/grill-me sync_conversations.py hard`, `/grill-me "MongoDB write concern" interview`. Sibling to `/pushback`: `/pushback` argues against *your* claim in one response; `/grill-me` quizzes *you* across many turns.
+
+### 13. Recommended environment variable
 
 `CLAUDE_CODE_NO_FLICKER=1` is already included in the `env` block of the platform settings templates (`platform/linux/settings.json`, `platform/macos/settings.json`, `platform/windows/settings.json`), so a standard install via step 3 picks it up automatically — no manual step needed. This is the default behavior since Claude Code v2.1.89, but setting it explicitly future-proofs against the default ever flipping. It enables fullscreen rendering and the in-app `Ctrl+O → [` history-dump trick.
 
 See `docs/scrollback.md` in this repo for the full explanation of fullscreen mode, scrollback behavior, and the `Ctrl+Home` / `Ctrl+O` navigation workflow.
 
-### 13. Apply VS Code settings + keybindings
+### 14. Apply VS Code settings + keybindings
 
 This step **applies** recommended VS Code settings and keybindings to the user's local config — it doesn't just document them. Skip this step if Claude Code isn't being used via VS Code's integrated terminal.
 
@@ -284,7 +293,7 @@ Bindings to add **only on Windows/Linux**:
 
 After writing both files, tell the user: "VS Code settings + keybindings applied. **Reload the VS Code window** (`Cmd/Ctrl+Shift+P` → 'Developer: Reload Window') for them to take effect."
 
-### 14. Verify
+### 15. Verify
 
 Run sync_conversations.py --scan one more time to confirm everything works.
 
