@@ -8,15 +8,23 @@ logging with file locking so concurrent runners don't corrupt the log.
 import argparse
 import sys
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 LOG_FILE = SCRIPT_DIR / 'sync.log'
 LOCK_FILE = SCRIPT_DIR / 'sync.log.lock'
 IS_WINDOWS = sys.platform == 'win32'
+KST = timezone(timedelta(hours=9))
 
 sys.path.insert(0, str(SCRIPT_DIR))
+
+
+def _log_ts():
+    """Dual KST | UTC timestamp prefix to avoid timezone confusion when reading sync.log."""
+    now_utc = datetime.now(timezone.utc)
+    now_kst = now_utc.astimezone(KST)
+    return f"{now_kst.strftime('%Y-%m-%d %H:%M:%S')} KST | {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
 
 
 def _acquire_lock(lock_fd):
@@ -48,8 +56,7 @@ def _release_lock(lock_fd):
 
 def log(msg):
     """Append to sync.log using a lockfile to prevent corruption."""
-    ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-    line = f'[{ts}] {msg}\n'
+    line = f'[{_log_ts()}] {msg}\n'
     lock_fd = None
     try:
         lock_fd = open(LOCK_FILE, 'w')
@@ -83,8 +90,7 @@ def main():
     # Diagnostic: prove the child process actually started.
     # If this line is missing from sync.log, subprocess.Popen never spawned us.
     import os
-    ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-    _diag_write(f'[{ts}] CHILD STARTED pid={os.getpid()} platform={sys.platform} argv={sys.argv[1:]}\n')
+    _diag_write(f'[{_log_ts()}] CHILD STARTED pid={os.getpid()} platform={sys.platform} argv={sys.argv[1:]}\n')
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--file', required=True)
