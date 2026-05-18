@@ -42,9 +42,9 @@ def main():
         query = {'session_id': {'$regex': f'^{prefix}'}}
     else:
         cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
-        query = {'synced_at': {'$gte': cutoff}}
+        query = {'last_synced_at': {'$gte': cutoff}}
 
-    sessions = list(col.find(query).sort('synced_at', -1))
+    sessions = list(col.find(query).sort('last_synced_at', -1))
     if not sessions:
         print('No sessions found.')
         client.close()
@@ -57,7 +57,8 @@ def main():
         sid = s['session_id']
         mongo_lines = s.get('raw_line_count', 0)
         mongo_msgs = s.get('message_count', 0)
-        synced_at = s.get('synced_at')
+        last_synced_at = s.get('last_synced_at')
+        last_synced_at_kst = s.get('last_synced_at_kst', '?')
         project = s.get('project', '?')
 
         local_file = find_jsonl(sid)
@@ -74,7 +75,8 @@ def main():
             'mongo_lines': mongo_lines,
             'mongo_msgs': mongo_msgs,
             'diff': diff,
-            'synced_at': str(synced_at),
+            'last_synced_at': str(last_synced_at),
+            'last_synced_at_kst': last_synced_at_kst,
         }
 
         if diff > 0:
@@ -87,7 +89,7 @@ def main():
         for e in issues:
             print(f'  {e["session_id"]}  {e["project"]}')
             print(f'    local: {e["local_lines"]} lines  |  mongo: {e["mongo_lines"]} lines  |  +{e["diff"]} unsynced')
-            print(f'    mongo msgs: {e["mongo_msgs"]}  |  last sync: {e["synced_at"]}')
+            print(f'    mongo msgs: {e["mongo_msgs"]}  |  last sync: {e["last_synced_at_kst"]} (UTC {e["last_synced_at"]})')
             print()
     else:
         print('All sessions in sync.')

@@ -25,13 +25,13 @@ def main():
     client, db = get_db()
     try:
         # Find sessions that have at least one message within yesterday (KST).
-        # session_date is session start time, but messages have their own timestamps.
+        # session_started_at is session start time, but messages have their own timestamps.
         # A session started days ago may still have messages from yesterday.
         # We cast a wider net on sessions, then filter messages by timestamp.
         three_days_ago = now - timedelta(days=3)
         td_start = three_days_ago.replace(hour=0, minute=0, second=0, microsecond=0)
         sessions = list(db['sessions'].find({
-            'session_date': {'$gte': td_start, '$lte': end}
+            'session_started_at': {'$gte': td_start, '$lte': end}
         }))
 
         if not sessions:

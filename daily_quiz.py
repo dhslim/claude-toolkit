@@ -41,7 +41,7 @@ def extract_content(sessions):
         if total_chars >= max_chars:
             break
         date_str = ''
-        sd = session.get('session_date')
+        sd = session.get('session_started_at')
         if sd and hasattr(sd, 'strftime'):
             date_str = sd.strftime('%Y-%m-%d')
         chunks.append(f'\n--- Session: {session.get("project", "?")} ({date_str}) ---\n')
@@ -82,7 +82,7 @@ def main():
         end_dt = datetime.fromisoformat(f'{date}T23:59:59').replace(tzinfo=KST)
 
         sessions = list(db['sessions'].find({
-            'session_date': {'$gte': start_dt, '$lte': end_dt}
+            'session_started_at': {'$gte': start_dt, '$lte': end_dt}
         }))
 
         if not sessions:

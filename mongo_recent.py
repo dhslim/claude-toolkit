@@ -75,18 +75,19 @@ def main():
     cutoff = datetime.now(timezone.utc) - duration
 
     client, db = get_db()
-    db['sessions'].create_index('synced_at')
+    db['sessions'].create_index('last_synced_at')
 
     # Aggregation pipeline: filter sessions + filter messages server-side
     pipeline = [
-        {'$match': {'synced_at': {'$gte': cutoff}}},
-        {'$sort': {'synced_at': -1}},
+        {'$match': {'last_synced_at': {'$gte': cutoff}}},
+        {'$sort': {'last_synced_at': -1}},
         {'$project': {
             'session_id': 1,
             'session_name': 1,
             'project': 1,
             'device': 1,
-            'synced_at': 1,
+            'last_synced_at': 1,
+            'last_synced_at_kst': 1,
             'messages': {
                 '$filter': {
                     'input': {'$ifNull': ['$messages', []]},
@@ -134,7 +135,8 @@ def main():
             'session_name': session.get('session_name') or '(unnamed)',
             'project': session.get('project', '?'),
             'device': session.get('device', '?'),
-            'synced_at': str(session.get('synced_at', '?')),
+            'last_synced_at': str(session.get('last_synced_at', '?')),
+            'last_synced_at_kst': session.get('last_synced_at_kst', '?'),
             'recent_message_count': len(recent_msgs),
             'user_messages': user_msgs,
             'assistant_messages': assistant_msgs,

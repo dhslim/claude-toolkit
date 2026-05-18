@@ -3,7 +3,7 @@
 
 from datetime import datetime, timezone
 from pathlib import Path
-from _shared import today_kst, get_db
+from _shared import today_kst, get_db, to_kst_iso
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 LOCAL_FILE = SCRIPT_DIR / 'quiz-last-dismissed.txt'
@@ -13,9 +13,10 @@ today = today_kst()
 # Write to MongoDB (source of truth, shared across machines)
 try:
     client, db = get_db()
+    now_utc = datetime.now(timezone.utc)
     db['quiz-markers'].update_one(
         {'date': today},
-        {'$set': {'dismissed_at': datetime.now(timezone.utc)}},
+        {'$set': {'dismissed_at': now_utc, 'dismissed_at_kst': to_kst_iso(now_utc)}},
         upsert=True
     )
     client.close()

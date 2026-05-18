@@ -6,7 +6,7 @@ import random
 import sys
 from datetime import datetime, timezone
 
-from _shared import get_db, today_kst
+from _shared import get_db, today_kst, to_kst_iso
 
 LABELS = ['A', 'B', 'C', 'D']
 
@@ -45,9 +45,11 @@ def main():
 
     client, db = get_db()
     try:
+        now_utc = datetime.now(timezone.utc)
         doc = {
             'date': today_kst(),
-            'created_at': datetime.now(timezone.utc),
+            'created_at': now_utc,
+            'created_at_kst': to_kst_iso(now_utc),
             'questions': questions,
             'answers': quiz_data.get('answers'),
             'score': quiz_data.get('score'),

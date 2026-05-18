@@ -28,6 +28,26 @@ def today_kst():
     return now_kst().strftime('%Y-%m-%d')
 
 
+def to_kst_iso(dt):
+    """Convert a UTC datetime (aware or naive UTC) to an ISO-8601 string in KST with +09:00 offset.
+
+    Used to write `*_kst` companion fields alongside canonical UTC datetimes in MongoDB.
+    Storing KST as an explicit-offset string (not a fake-UTC datetime) keeps it
+    self-describing and prevents silent timezone coercion by BSON.
+    """
+    if dt is None:
+        return None
+    # If it's a string (e.g. message timestamps from JSONL like "2026-05-18T21:46:13.186Z"), parse first.
+    if isinstance(dt, str):
+        try:
+            dt = datetime.fromisoformat(dt.replace('Z', '+00:00'))
+        except ValueError:
+            return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(KST).isoformat()
+
+
 def get_db():
     """Return (client, db) tuple for conversation-warehouse database."""
     uri = os.environ.get('MONGODB_URI')

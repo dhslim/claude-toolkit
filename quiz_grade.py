@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from bson import ObjectId
-from _shared import get_db, today_kst
+from _shared import get_db, today_kst, to_kst_iso
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 TAKEN_FILE = SCRIPT_DIR / 'quiz-last-taken.txt'
@@ -79,6 +79,7 @@ def main():
 
         total = len(questions)
         now = datetime.now(timezone.utc)
+        now_kst_iso = to_kst_iso(now)
 
         # Update quiz document with answers and score
         db['daily-quizzes'].update_one(
@@ -89,13 +90,14 @@ def main():
                 'total': total,
                 'graded': True,
                 'graded_at': now,
+                'graded_at_kst': now_kst_iso,
             }}
         )
 
         # Write quiz-markers (source of truth for cross-machine sync)
         db['quiz-markers'].update_one(
             {'date': today},
-            {'$set': {'taken_at': now}},
+            {'$set': {'taken_at': now, 'taken_at_kst': now_kst_iso}},
             upsert=True
         )
 

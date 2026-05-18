@@ -15,7 +15,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from _shared import get_db, with_retry
+from _shared import get_db, with_retry, to_kst_iso
 
 CLAUDE_PROJECTS_DIR = Path.home() / '.claude' / 'projects'
 DEVICE = platform.node()
@@ -34,7 +34,7 @@ def parse_jsonl(file_path):
 
     session_id = None
     session_name = None
-    session_date = None
+    session_started_at = None
     project = None
     messages = []
 
@@ -50,8 +50,8 @@ def parse_jsonl(file_path):
             session_id = obj['sessionId']
         if msg_type == 'custom-title' and obj.get('customTitle'):
             session_name = obj['customTitle']
-        if not session_date and obj.get('timestamp'):
-            session_date = datetime.fromisoformat(obj['timestamp'].replace('Z', '+00:00'))
+        if not session_started_at and obj.get('timestamp'):
+            session_started_at = datetime.fromisoformat(obj['timestamp'].replace('Z', '+00:00'))
         if not project and obj.get('cwd'):
             project = obj['cwd']
 
@@ -66,11 +66,13 @@ def parse_jsonl(file_path):
                 and '<local-command-caveat>' in msg['content']):
             continue
 
+        ts = obj.get('timestamp')
         messages.append({
             'type': msg_type,
             'role': msg.get('role') if isinstance(msg, dict) else None,
             'content': msg.get('content') if isinstance(msg, dict) else None,
-            'timestamp': obj.get('timestamp'),
+            'timestamp': ts,
+            'timestamp_kst': to_kst_iso(ts),
             'uuid': obj.get('uuid'),
             'parentUuid': obj.get('parentUuid'),
         })
@@ -84,7 +86,7 @@ def parse_jsonl(file_path):
         'session_id': session_id,
         'session_name': session_name,
         'project': project,
-        'session_date': session_date,
+        'session_started_at': session_started_at,
         'raw_line_count': raw_line_count,
         'messages': messages,
     }
@@ -106,14 +108,17 @@ def find_all_jsonl_files():
 def upsert_session(collection, doc):
     """Upsert a session document with retry."""
     def _do():
+        now_utc = datetime.now(timezone.utc)
         result = collection.update_one(
             {'session_id': doc['session_id']},
             {'$set': {
                 'session_name': doc['session_name'],
                 'project': doc['project'],
                 'device': doc['device'],
-                'session_date': doc['session_date'],
-                'synced_at': datetime.now(timezone.utc),
+                'session_started_at': doc['session_started_at'],
+                'session_started_at_kst': to_kst_iso(doc['session_started_at']),
+                'last_synced_at': now_utc,
+                'last_synced_at_kst': to_kst_iso(now_utc),
                 'message_count': doc['message_count'],
                 'raw_line_count': doc['raw_line_count'],
                 'messages': doc['messages'],
@@ -137,7 +142,7 @@ def sync_one_file(collection, file_path):
         'session_name': parsed['session_name'],
         'project': parsed['project'],
         'device': DEVICE,
-        'session_date': parsed['session_date'] or datetime.now(timezone.utc),
+        'session_started_at': parsed['session_started_at'] or datetime.now(timezone.utc),
         'message_count': len(parsed['messages']),
         'raw_line_count': parsed['raw_line_count'],
         'messages': parsed['messages'],
@@ -196,12 +201,16 @@ def sync_all(collection):
                     skipped += 1
 
                 # Update cache
-                with_retry(lambda n=normalized, cl=current_lines: cache_col.update_one(
-                    {'file_path': n},
-                    {'$set': {'file_path': n, 'line_count': cl,
-                              'synced_at': datetime.now(timezone.utc)}},
-                    upsert=True,
-                ))
+                def _update_cache(n=normalized, cl=current_lines):
+                    now_utc = datetime.now(timezone.utc)
+                    return cache_col.update_one(
+                        {'file_path': n},
+                        {'$set': {'file_path': n, 'line_count': cl,
+                                  'last_synced_at': now_utc,
+                                  'last_synced_at_kst': to_kst_iso(now_utc)}},
+                        upsert=True,
+                    )
+                with_retry(_update_cache)
         except Exception as e:
             errors += 1
             print(f'Error {fp.name}: {e}', file=sys.stderr)
@@ -261,7 +270,7 @@ def main():
     try:
         collection = db['sessions']
         collection.create_index('session_id', unique=True)
-        collection.create_index('session_date')
+        collection.create_index('session_started_at')
 
         if args.file_path:
             resolved = Path(args.file_path).resolve()
