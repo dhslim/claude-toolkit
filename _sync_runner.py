@@ -66,7 +66,26 @@ def log(msg):
             lock_fd.close()
 
 
+def _diag_write(line: str) -> None:
+    """Write directly to sync.log with no locking, no imports — for diagnostics.
+
+    Used to record that the child process started AT ALL, before any code
+    path that could fail (imports, locking, MongoDB connect, etc).
+    """
+    try:
+        with open(LOG_FILE, 'a', encoding='utf-8') as f:
+            f.write(line)
+    except Exception:
+        pass
+
+
 def main():
+    # Diagnostic: prove the child process actually started.
+    # If this line is missing from sync.log, subprocess.Popen never spawned us.
+    import os
+    ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+    _diag_write(f'[{ts}] CHILD STARTED pid={os.getpid()} platform={sys.platform} argv={sys.argv[1:]}\n')
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--file', required=True)
     parser.add_argument('--sid', default='?')
