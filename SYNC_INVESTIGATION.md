@@ -86,37 +86,58 @@ Expected outcomes:
 | `CHILD STARTED` + `SYNC ERR <traceback>`                 | sync_one_file raised — traceback shows what   |
 | `CHILD STARTED` + `SYNC OK` + lag < 5s                   | **working as designed**                       |
 
+## Verification — 2026-05-19 (Mac)
+
+Ran the verification plan on `Davids-MacBook-Pro-4.local` after pulling origin/main (which contains commits `15c66d1` cross-platform locking + `855eda5` `CHILD STARTED` diagnostic).
+
+**Result: `CHILD STARTED` + `SYNC OK` + lag < 5s — working as designed.**
+
+Confirmed by:
+- `~/.claude/settings.json` Stop hook is registered, points at `hook_sync.py` ✅
+- `.venv/bin/python` (Python 3.9.6) has `pymongo 4.17.0` ✅
+- sync.log shows the canonical sequence on every recent Stop: `Stop -> <sid> sync started (pid N)` → `CHILD STARTED pid=N platform=darwin argv=[...]` → `SYNC OK <sid>: updated (N msgs)`, all within ~4–5 seconds
+- Manual `hook_sync.py` invocation with synthetic Stop payload completed successfully (exit 0, new lines in sync.log, MongoDB `message_count` advanced)
+
+**Treasure-hunt test (definitive end-to-end check), 2/2:**
+- Test 1: Planted unique string `K9X4` in an assistant turn. Stop fired → SYNC OK 4s later → substring queryable in `db.sessions[session_id].messages[]` within seconds.
+- Test 2: Planted unique strings `Z3M7` / `J4X9` in a later turn. Same result, ~5s lag.
+
+**Note on the "9-hour stale" false alarm:** initial verification appeared to show a 9-hour sync gap. Root cause was a **display-layer timezone confusion** — sync.log timestamps are UTC (`datetime.now(timezone.utc)`), the operator is in KST (UTC+9), so log entries from "2026-05-18 20:51 UTC" read as ancient when they were actually "2026-05-19 05:51 KST" — same moment. Not a sync issue. Fixed separately by writing both UTC and KST to sync.log entries.
+
 ## TODO / Further Investigations
 
-### Immediate (next time on Mac)
-- [ ] **Mac verification run** — pull origin/main, do one turn, tail sync.log, classify outcome per the table above
-- [ ] **Check Mac hook registration** — `cat ~/.claude/settings.json | jq '.hooks'` to confirm Stop hook points at `hook_sync.py`
-- [ ] **Confirm Mac venv** — verify `~/Projects/claude-toolkit/.venv/bin/python` exists and has `pymongo` installed
-- [ ] **Manual sync test** — run `_sync_runner.py --file <recent-jsonl> --sid test123` directly on Mac and verify both sync.log entry AND MongoDB update
+### Immediate (next time on Mac) — ✅ all verified on 2026-05-19
+- [x] **Mac verification run** — pulled origin/main, ran turns, sync.log shows `CHILD STARTED + SYNC OK + lag < 5s` (working as designed)
+- [x] **Check Mac hook registration** — Stop hook present, points at `hook_sync.py` with the venv python
+- [x] **Confirm Mac venv** — `.venv/bin/python` (3.9.6) + `pymongo 4.17.0` present
+- [x] **Manual sync test** — synthetic Stop payload to `hook_sync.py` produced new sync.log entries AND advanced Mongo `message_count`
 
 ### If verification shows Popen spawn failure
-- [ ] Replace `start_new_session=True` with `posix_spawn` or `multiprocessing` to see if Popen detachment is platform-flaky
-- [ ] Add stderr capture to `hook_sync.py` Popen call temporarily to surface spawn errors
+Not triggered — Popen detachment works on this Mac. Items moved to "not currently needed":
+- ~~Replace `start_new_session=True` with `posix_spawn` or `multiprocessing`~~
+- ~~Add stderr capture to `hook_sync.py` Popen call temporarily~~
 
 ### If verification shows sync_one_file failure
-- [ ] Add per-step logging inside `sync_one_file` (file read, parse, get_db, upsert) to find which step raises
-- [ ] Check MongoDB Atlas IP allowlist — Mac on different network than Windows?
-- [ ] Confirm `.env` MONGODB_URI is identical between Mac and Windows installs
+Not triggered — sync_one_file succeeds. Items moved to "not currently needed":
+- ~~Add per-step logging inside `sync_one_file`~~
+- ~~Check MongoDB Atlas IP allowlist~~
+- ~~Confirm `.env` MONGODB_URI identical Mac vs Windows~~
 
-### Cross-platform robustness (regardless of root cause)
+### Cross-platform robustness (still worth doing regardless)
 - [ ] Audit other scripts (`hook_sync.py`, `hook_notify.py`, `hook_session_guard.py`) for Windows-only imports or path assumptions
 - [ ] Consider switching from detached-child model to a foreground sync with a short timeout — slower per-turn but eliminates entire class of detachment bugs
 - [ ] Add a periodic "scan and reconcile" cron that catches anything the hook missed (separate from the per-turn path)
 
-### Observability
+### Observability — still open
 - [ ] Send sync failures to MongoDB itself (a `sync_errors` collection) so we can see failure rates across machines without SSHing in
 - [ ] Add `synced_via` field to session docs (`hook` vs `scan` vs `manual`) so we can quantify how often the hook actually works
 - [ ] Add lag histogram to a daily summary so trends are visible
 
 ### Documentation
-- [ ] Once root cause confirmed, write a one-pager in `INSTALL.md` for "verifying the hook is working" after a fresh install on a new machine
+- [ ] Add a one-pager in `INSTALL.md` for "verifying the hook is working" after a fresh install on a new machine (template: the treasure-hunt test from 2026-05-19)
 - [ ] Document the failure modes table in `README.md` under a "Troubleshooting" section
 
 ## Timeline
 - 2026-04-06: Issue first observed in DentWebMigration session. Logging added to hook_sync.py.
-- 2026-05-18: Empirical data review showed both Mac and Windows have intermittent sync misses (not Mac-only). msvcrt cross-platform bug fixed in `_sync_runner.py`. `CHILD STARTED` diagnostic added to distinguish failure modes. Root cause still TBD pending Mac verification.
+- 2026-05-18: Empirical data review showed both Mac and Windows have intermittent sync misses (not Mac-only). msvcrt cross-platform bug fixed in `_sync_runner.py` (`15c66d1`). `CHILD STARTED` diagnostic added to distinguish failure modes (`855eda5`). Doc rewrite (`92665dd`) to correct over-claims.
+- 2026-05-19: Verification ran on Mac. Per-turn sync confirmed healthy (lag ~4–5s), treasure-hunt test passed 2/2. Open hypotheses (Popen spawn failure, sync_one_file failure) not triggered. Original report's "Mac is broken" suspicion fully addressed by the msvcrt locking fix.
