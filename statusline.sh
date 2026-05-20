@@ -1,8 +1,24 @@
 #!/bin/bash
 input=$(cat)
+
 MODEL=$(echo "$input" | jq -r '.model.display_name // "Claude"')
 DIR=$(echo "$input" | jq -r '.cwd // "~"')
-PCT=$(echo "$input" | jq -r '.context_window.used_percentage // 0' | cut -d. -f1)
+
+# Real context %: CC 2.1.145 reports context_window_size=200000 for all models
+# even though Opus 4.7 and Sonnet 4.6 have 1M extended context.
+# Map by model name to compute against actual model limit.
+USED_TOKENS=$(echo "$input" | jq -r '.context_window.total_input_tokens // 0')
+case "$MODEL" in
+    *Opus*|*Sonnet*)  REAL_LIMIT=1000000 ;;   # 1M extended context
+    *Haiku*)          REAL_LIMIT=200000 ;;
+    *)                REAL_LIMIT=200000 ;;
+esac
+if [ "$USED_TOKENS" -gt 0 ]; then
+    PCT=$((USED_TOKENS * 100 / REAL_LIMIT))
+    [ "$PCT" -gt 100 ] && PCT=100
+else
+    PCT=0
+fi
 
 # Context bar
 BAR_WIDTH=10
