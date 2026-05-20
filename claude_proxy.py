@@ -216,6 +216,37 @@ def extract_usage_from_sse(buf: bytes) -> str:
     return " ".join(parts) if parts else "<no-usage>"
 
 
+def _normalize_cc_1m_suffix(body: dict, headers_dict: dict) -> bool:
+    """Strip CC 2.1.145's malformed [1m] suffix on model id; move to anthropic-beta.
+
+    Claude Code 2.1.145 sends model="claude-opus-4-7[1m]" instead of using the
+    proper anthropic-beta: context-1m-2025-08-07 header. Anthropic returns 404
+    because that model id doesn't exist, and CC misinterprets the 404 as
+    "Context limit reached / /clear to continue" on the FIRST prompt of a
+    session.
+
+    This fix rewrites the body's model to the bare id and adds the 1m context
+    beta to the anthropic-beta header (comma-separated list).
+
+    Returns True if a rewrite happened, False otherwise. Mutates both args.
+    """
+    model = body.get("model", "")
+    if not (isinstance(model, str) and model.endswith("[1m]")):
+        return False
+    body["model"] = model[: -len("[1m]")]
+    # Collect any existing anthropic-beta value across mixed-case keys.
+    existing = ""
+    for k in list(headers_dict.keys()):
+        if k.lower() == "anthropic-beta":
+            existing = headers_dict[k] or existing
+            del headers_dict[k]
+    betas = [b.strip() for b in existing.split(",") if b.strip()]
+    if "context-1m-2025-08-07" not in betas:
+        betas.append("context-1m-2025-08-07")
+    headers_dict["anthropic-beta"] = ",".join(betas)
+    return True
+
+
 def describe_body(body_bytes: bytes) -> str:
     """Summarize a JSON body for logging."""
     try:
@@ -831,6 +862,23 @@ async def proxy(request: Request, full_path: str):
     }
     fwd_headers["accept-encoding"] = "identity"
 
+    # CC 2.1.145 bug: sends model="claude-opus-4-7[1m]" as a literal id instead
+    # of using anthropic-beta: context-1m-2025-08-07. Anthropic returns 404,
+    # which CC misinterprets as "Context limit reached" on the FIRST prompt.
+    # Rewrite the body's model to the bare id and add the 1m beta header.
+    if body:
+        try:
+            _body_obj = json.loads(body.decode("utf-8"))
+            if isinstance(_body_obj, dict) and _normalize_cc_1m_suffix(_body_obj, fwd_headers):
+                body = json.dumps(_body_obj).encode("utf-8")
+                body_size = len(body)
+                log(
+                    f"🔧 rewrote model=claude-opus-4-7[1m] → claude-opus-4-7 + "
+                    f"anthropic-beta: context-1m-2025-08-07"
+                )
+        except Exception:
+            pass
+
     # Keep query string intact
     url = f"/{full_path}"
     if request.url.query:
@@ -881,7 +929,7 @@ async def proxy(request: Request, full_path: str):
             body,
             SHIFT_THRESHOLD,
             SHIFT_RATIO,
-            dict(request.headers),
+            fwd_headers,
             prior_anchor=prior_anchor,
         )
         trim_elapsed_ms = (time.monotonic() - trim_t0) * 1000
