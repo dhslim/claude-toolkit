@@ -21,3 +21,11 @@ probe-dump-*.json
 probe-dump-*.summary.txt
 proxy.log
 proxy.err.log
+proxy_1m_dump.json
+proxy_over_cap_dump.json
+
+# Hook runtime logs
+hook_turn_timestamp.log
+
+# Quiz runtime payloads
+quiz_payload*.json
