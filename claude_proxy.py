@@ -1,18 +1,18 @@
-"""Claude Code API proxy — sliding-window trim (Option 5, slice-to-target).
+"""Claude Code API proxy — sliding-window trim with three absolute-value knobs.
 
 Listens on localhost:9999 and forwards every request to api.anthropic.com.
 When a /v1/messages body would exceed Anthropic's token cap, uses a
 per-session sliding-window anchor that advances monotonically: when the
-count_tokens result crosses SHIFT_TRIGGER, the anchor slices forward in
-one operation to land at HARD_CAP × SHIFT_RATIO tokens (e.g., 1M × 0.5 =
-500K). One slice from any starting size — including pathological cases
-where the conversation walks in at 4M tokens.
+count_tokens result crosses SHIFT_TRIGGER, an estimate-based single-pass
+slice walks the turn groups newest → oldest and keeps as many as fit
+under KEEP_TARGET tokens, then a count_tokens safety re-check advances
+the anchor further if the estimate undershot the real cap.
 
-Between shifts the byte prefix stays stable, so Anthropic's prompt cache
-hits at ~99% rate via the 20-block lookback — same behavior as
-Claude Code's native caching strategy. At shift moments, one turn pays
-a ~3–5 min cache-miss penalty to establish a new snapshot. On average
-~1 shift per 100–250 turns, so the slow-turn rate is ~1%.
+Between shifts the anchor doesn't move, so the byte prefix stays stable
+and Anthropic's prompt cache hits at ~99% rate via the 20-block lookback —
+same behavior as Claude Code's native caching strategy. At shift moments,
+one turn pays a ~3–5 min cache-miss penalty to establish a new snapshot.
+On average ~1 shift per 100–250 turns, so the slow-turn rate is ~1%.
 
 Two-path design:
     Fast path — body < FAST_PATH_THRESHOLD bytes
@@ -24,11 +24,12 @@ Two-path design:
     Slow path — body >= FAST_PATH_THRESHOLD bytes
         Apply the per-session sliding-window anchor (front-drop everything
         before groups[anchor]). Ask count_tokens for the exact size. If over
-        SHIFT_TRIGGER, advance the anchor to slice down to HARD_CAP ×
-        SHIFT_RATIO tokens (one operation, always lands at target). A
-        post-shift safety loop re-checks count_tokens and advances further
-        if the estimate undershot. Always rewrite the messages-level
-        cache_control to point at the new last cacheable block.
+        SHIFT_TRIGGER, run a single-pass slice newest → oldest that keeps
+        groups whose cumulative estimated size stays under KEEP_TARGET,
+        then a single count_tokens re-check; if real count is still over
+        MODEL_CAP, advance one group at a time until under. Always rewrite
+        the messages-level cache_control to point at the new last cacheable
+        block.
 
 Usage:
     python claude_proxy.py
@@ -36,15 +37,16 @@ Usage:
 Env vars:
     CLAUDE_PROXY_FAST_BYTES       body size (bytes) below which to skip the
                                   token check. Default 950,000 (~0.9 MB).
-    CLAUDE_PROXY_HARD_CAP         the actual Anthropic token ceiling.
-                                  Default 1,000,000. Don't change unless
-                                  the API limit itself changes.
-    CLAUDE_PROXY_SHIFT_TRIGGER    token count above which a shift fires.
-                                  Default 700,000. (Also accepts the legacy
-                                  CLAUDE_PROXY_SHIFT_THRESHOLD as fallback.)
-    CLAUDE_PROXY_SHIFT_RATIO      target landing size as a fraction of
-                                  HARD_CAP. Default 0.5 → land at 500K
-                                  tokens. Lower = more aggressive trim.
+    CLAUDE_PROXY_MODEL_CAP        Anthropic's actual /v1/messages token
+                                  ceiling. Default 1,000,000. Used for the
+                                  post-slice safety check and ⚠ over-cap
+                                  warning. Don't change unless the API
+                                  limit itself changes.
+    CLAUDE_PROXY_SHIFT_TRIGGER    count_tokens value above which a shift
+                                  fires. Default 700,000. (Legacy
+                                  CLAUDE_PROXY_SHIFT_THRESHOLD also honored.)
+    CLAUDE_PROXY_KEEP_TARGET      absolute token target the slice aims to
+                                  land at. Default 400,000.
     CLAUDE_PROXY_QUIET            if set, only log trims and errors.
 
 Then in another terminal:
@@ -68,6 +70,7 @@ import time
 from collections import OrderedDict
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 
 _KST = timezone(timedelta(hours=9))
 
@@ -111,48 +114,87 @@ LISTEN_PORT = 9999
 # tokens Anthropic adds internally).
 FAST_PATH_THRESHOLD = int(os.environ.get("CLAUDE_PROXY_FAST_BYTES", "950000"))
 
-# Three constants govern the sliding window:
+# Three absolute-value constants govern the sliding window. No ratios, no
+# multiplication — each number means exactly what it says.
 #
-#   HARD_CAP_TOKENS   The actual Anthropic /v1/messages token ceiling
+#   MODEL_CAP_TOKENS  The actual Anthropic /v1/messages token ceiling
 #                     (1,000,000 for Opus 4.x with context-1m-2025-08-07).
 #                     Requests over this 400 with "prompt is too long".
+#                     Used ONLY for the post-slice safety check and the
+#                     ⚠ over-cap log warning. Not used in math elsewhere.
 #                     Treat as immutable; this is the API's number, not ours.
 #
-#   SHIFT_TRIGGER     The count_tokens value above which we fire a shift.
-#                     700K leaves ~300K headroom under HARD_CAP so we have
-#                     time to react before the model emits tokens that
-#                     push us over.
+#   SHIFT_TRIGGER     The count_tokens value above which a shift fires.
+#                     700K leaves ~300K headroom under MODEL_CAP so we have
+#                     time to react before the next turn's growth pushes
+#                     us into the cap.
 #
-#   SHIFT_RATIO       The TARGET we land at after a shift, as a fraction
-#                     of HARD_CAP. With 0.5: shift lands at HARD_CAP × 0.5
-#                     = 500K tokens (one slice from whatever size we were).
-#                     Lower (0.3) = more aggressive trim, smaller working
-#                     set, less context retained, more cache rebuilds.
-#                     Higher (0.7) = gentler trim, more context retained,
-#                     tighter to the trigger so shifts fire more often.
-#                     0.5 is the balanced default.
+#   KEEP_TARGET       The absolute number of tokens we slice down to when a
+#                     shift fires. 400K gives ~300K margin under TRIGGER so
+#                     several conversation turns can grow before the next
+#                     shift fires (cache-stability win), and gives ~600K
+#                     margin under MODEL_CAP so the chars/4 estimator
+#                     undershooting can't push the real count over the cap.
 #
 # IMPORTANT: count_tokens API systematically UNDER-reports vs the token
 # count Anthropic's actual /v1/messages processing uses. We empirically
-# observed a 413 "Request size exceeds model context window" at
-# count_tokens=791,826 on 2026-04-14. The true under-report ratio is
-# workload-dependent, roughly 1.26x for mixed prose/code, higher for
-# code-dense. The HARD_CAP × SHIFT_RATIO target gives a built-in safety
-# margin: 0.5 × 1M = 500K count_tokens × 1.3 expansion ≈ 650K real ≈
-# well under the 1M cap. A post-shift safety loop re-checks count_tokens
-# and shifts further if the estimate undershot.
-HARD_CAP_TOKENS = int(os.environ.get("CLAUDE_PROXY_HARD_CAP", "1000000"))
+# observed a 413 at count_tokens=791,826 on 2026-04-14. The true ratio is
+# workload-dependent: ~1.26x for prose/code, observed up to ~2.8x for
+# code-dense / JSON-heavy STT2 sessions. Because _estimate_group_tokens
+# is chars/4 (cheap), it under-counts even more than count_tokens does.
+# The slice-to-target loop therefore PESSIMISTICALLY runs a safety re-check
+# via count_tokens after the estimate-based slice, and advances further if
+# the real count is still over MODEL_CAP.
+MODEL_CAP_TOKENS = int(os.environ.get("CLAUDE_PROXY_MODEL_CAP", "1000000"))
 SHIFT_TRIGGER = int(os.environ.get(
     "CLAUDE_PROXY_SHIFT_TRIGGER",
     os.environ.get("CLAUDE_PROXY_SHIFT_THRESHOLD", "700000"),  # backwards-compat
 ))
-SHIFT_RATIO = float(os.environ.get("CLAUDE_PROXY_SHIFT_RATIO", "0.5"))
+KEEP_TARGET = int(os.environ.get(
+    "CLAUDE_PROXY_KEEP_TARGET",
+    os.environ.get("CLAUDE_PROXY_SHIFT_TARGET", "400000"),  # also accepted
+))
 
-# Backwards-compat alias — older code paths may still reference SHIFT_THRESHOLD.
+# Backwards-compat aliases — older code paths may still reference the
+# old names. SHIFT_RATIO no longer drives behavior; computed for legacy
+# log/diagnostic compatibility only.
+HARD_CAP_TOKENS = MODEL_CAP_TOKENS
 SHIFT_THRESHOLD = SHIFT_TRIGGER
+SHIFT_RATIO = KEEP_TARGET / MODEL_CAP_TOKENS if MODEL_CAP_TOKENS else 0.0
 
 # Verbose by default. Set CLAUDE_PROXY_QUIET=1 to only log trims and errors.
 QUIET = os.environ.get("CLAUDE_PROXY_QUIET", "").strip() not in ("", "0", "false", "False")
+
+# Statusline integration: every successful /v1/messages forward writes the
+# real token count we sent upstream into a PER-SESSION TSV file. The session
+# id comes from the request header `x-claude-code-session-id` (matches the
+# transcript filename UUID statusline can derive from .transcript_path).
+# statusline.sh reads only ITS session's file, so concurrent CC sessions
+# don't pollute each other's bars.
+LAST_SEND_DIR = Path.home() / ".claude" / "proxy_last_send"
+
+
+def _publish_last_send(tokens: int, session_id: str | None) -> None:
+    """Write <tokens>\\t<unix_ts>\\n to per-session TSV. Never raises.
+
+    No session_id → skip the write (don't fall back to a global file; that
+    would re-introduce the cross-session pollution this design fixes).
+    """
+    if not session_id:
+        return
+    # Basic safety: session ids are UUIDs in practice; reject anything else
+    # to prevent path traversal if a header ever carries weird content.
+    if not all(c.isalnum() or c == "-" for c in session_id) or len(session_id) > 64:
+        return
+    try:
+        LAST_SEND_DIR.mkdir(parents=True, exist_ok=True)
+        path = LAST_SEND_DIR / f"{session_id}.tsv"
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(f"{int(tokens)}\t{int(time.time())}\n", encoding="utf-8")
+        os.replace(tmp, path)
+    except Exception:
+        # Statusline state is best-effort — must never break the forward.
+        pass
 
 # Headers we should NOT forward (they get recalculated or refer to our proxy)
 STRIP_REQUEST_HEADERS = {
@@ -762,20 +804,28 @@ def _estimate_group_tokens(group: list) -> int:
 
 async def trim_to_sliding_window(
     body_bytes: bytes,
-    hard_cap_tokens: int,
+    model_cap_tokens: int,
     shift_trigger_tokens: int,
-    shift_ratio: float,
+    keep_target_tokens: int,
     request_headers: dict,
     prior_anchor: int = 0,
 ) -> tuple[bytes, dict | None]:
-    """Slice the kept window down to a target size when over trigger.
+    """Slice the kept window down to keep_target_tokens when over trigger.
 
-    Semantics (new, post-2026-05-22):
+    Semantics (post-2026-05-22 revision):
       - Trigger: count_tokens > shift_trigger_tokens fires a shift.
-      - Target:  shift lands at hard_cap_tokens × shift_ratio (one slice).
-      - Safety:  if post-shift count_tokens still > hard_cap_tokens, advance
-                 the anchor one group at a time until under cap or only the
-                 last group remains.
+      - Slice:   one pass newest → oldest over turn groups, keeping groups
+                 whose cumulative _estimate_group_tokens stays under
+                 keep_target_tokens. Stops at the first overshoot. Always
+                 keeps at least the latest group, even if it alone exceeds
+                 the target.
+      - Safety:  _estimate_group_tokens is chars/4 — empirically under-counts
+                 real tokens by up to ~2.8x on code-dense bodies. After the
+                 estimate-based slice, do ONE count_tokens re-check. If the
+                 real count is still over model_cap_tokens, advance the anchor
+                 one group at a time until under or only the latest group
+                 remains. This is the cheap insurance the chars/4 estimator
+                 needs to avoid 400s.
 
     Between shifts the anchor doesn't move, so the byte prefix stays stable
     and Anthropic's prompt cache hits at ~99%. Each shift is one byte-prefix
@@ -827,27 +877,25 @@ async def trim_to_sliding_window(
     shift_fired = False
 
     if initial_tokens > shift_trigger_tokens:
-        # Trigger fired. Slice down to target_keep_tokens = HARD_CAP × ratio.
-        # This is a TARGET, not a drop fraction: with hard_cap=1M and
-        # ratio=0.5, we land at 500K regardless of whether we started at
-        # 800K, 2.6M, or 4M. One slice, predictable outcome.
-        target_keep_tokens = int(hard_cap_tokens * shift_ratio)
-        target_drop = max(0, initial_tokens - target_keep_tokens)
+        # Trigger fired. Single-pass slice toward keep_target_tokens: walk
+        # groups newest → oldest, keep groups whose cumulative estimated
+        # size stays under the target, stop at the first overshoot. Always
+        # keep at least the latest group.
+        kept_count = 0
+        kept_tokens = 0
+        for g in reversed(groups):  # newest first
+            gsize = _estimate_group_tokens(g)
+            if kept_count > 0 and kept_tokens + gsize > keep_target_tokens:
+                break  # would overshoot, stop
+            kept_count += 1
+            kept_tokens += gsize
 
-        per_group_tokens = [_estimate_group_tokens(g) for g in groups]
-
-        # Walk forward from `anchor`, accumulating estimated dropped tokens,
-        # until we've dropped enough to leave only `target_keep_tokens`.
-        # new_anchor = i + 1 rounds UP past the crossing group. Worst-case
-        # fallback is `total_groups - 1` (keep only the last group).
-        accumulated = 0
-        new_anchor = total_groups - 1
-        for i in range(anchor, total_groups - 1):
-            accumulated += per_group_tokens[i]
-            if accumulated >= target_drop:
-                new_anchor = i + 1
-                break
-        new_anchor = min(max(new_anchor, anchor + 1), total_groups - 1)
+        # Translate "kept_count groups from the tail" back into an anchor
+        # integer so the per-session watermark logic continues working.
+        new_anchor = total_groups - kept_count
+        # Anchor must advance monotonically (>= prior anchor) and never
+        # drop the last group.
+        new_anchor = min(max(new_anchor, anchor), total_groups - 1)
 
         if new_anchor > anchor:
             anchor = new_anchor
@@ -857,23 +905,58 @@ async def trim_to_sliding_window(
                 initial_tokens = new_tokens
             shift_fired = True
 
-            # Safety net: per_group_tokens is an ESTIMATE. If the real count
-            # is still over the hard cap, advance one group at a time until
-            # under or only the last group remains. Bounded loop — caps at
-            # total_groups - 1 iterations in the worst case.
-            safety_steps = 0
-            while initial_tokens > hard_cap_tokens and anchor < total_groups - 1:
-                anchor += 1
-                safety_steps += 1
-                trial_bytes = build_body_at_anchor(anchor)
-                checked = await count_tokens_via_anthropic(trial_bytes, request_headers)
-                if checked is None:
-                    break
-                initial_tokens = checked
-            if safety_steps:
+        # Safety re-check — runs WHENEVER count_tokens reports over the
+        # KEEP_TARGET, not just when the estimate-based slice advanced the
+        # anchor. The chars/4 estimator under-counts real tokens (~2.5–2.8x
+        # on code-dense STT2 sessions); without this loop the slice often
+        # lands near MODEL_CAP, not near KEEP_TARGET.
+        #
+        # Convergence: each iteration measures avg tokens per remaining
+        # group from the actual count, then jumps proportionally toward the
+        # target. Usually converges in 1–3 iterations even when starting
+        # 2.5x over target. Falls back to a single-group step when within
+        # one group's worth of the target. Always bounded by total_groups.
+        safety_steps = 0
+        while (
+            initial_tokens is not None
+            and initial_tokens > keep_target_tokens
+            and anchor < total_groups - 1
+        ):
+            remaining_groups = total_groups - anchor
+            if remaining_groups <= 1:
+                break
+            # Proportional jump: avg tokens per kept group × overshoot
+            avg_tok_per_group = initial_tokens / remaining_groups
+            overshoot = initial_tokens - keep_target_tokens
+            groups_to_drop = max(1, int(overshoot / max(avg_tok_per_group, 1)))
+            # Never drop the last group; advance at least 1.
+            groups_to_drop = min(groups_to_drop, total_groups - 1 - anchor)
+            anchor += groups_to_drop
+            safety_steps += 1
+            trial_bytes = build_body_at_anchor(anchor)
+            checked = await count_tokens_via_anthropic(trial_bytes, request_headers)
+            if checked is None:
+                break
+            initial_tokens = checked
+            shift_fired = True  # safety advance counts as a shift
+        if safety_steps:
+            log(
+                f"  [safety re-shift] anchor -> {anchor}, "
+                f"tokens -> {initial_tokens:,}  ({safety_steps} extra step(s))"
+            )
+
+        if shift_fired:
+            # Edge cases after safety loop exits:
+            #   - over MODEL_CAP: single retained group exceeds the cap.
+            #     Pathological; log loudly and let Anthropic 400.
+            #   - over KEEP_TARGET but under MODEL_CAP: anchor maxed out
+            #     before reaching the target. Safe to send (no 400 risk)
+            #     but didn't hit the trim aspiration. Note quietly.
+            if initial_tokens is not None and initial_tokens > model_cap_tokens:
                 log(
-                    f"  ↻ safety re-shift: anchor → {anchor}, "
-                    f"tokens → {initial_tokens:,}  ({safety_steps} extra step(s))"
+                    f"  [WARN] post-slice still over MODEL_CAP "
+                    f"({initial_tokens:,} tok) — single group too large, "
+                    f"sending anyway"
                 )
 
     final_bytes = trial_bytes
@@ -968,6 +1051,10 @@ async def proxy(request: Request, full_path: str):
     )
 
     trim_elapsed_ms = 0.0
+    # Real token count we'll forward — populated by slow path from
+    # count_tokens, or estimated from body size for fast path. Used by
+    # _publish_last_send for the statusline.
+    actual_tokens_sent: int | None = None
     if is_messages and body_size >= FAST_PATH_THRESHOLD:
         # One-shot probe: capture the next slow-path /v1/messages body for
         # offline inspection of cache_control usage. Fires once per process.
@@ -992,9 +1079,9 @@ async def proxy(request: Request, full_path: str):
         trim_t0 = time.monotonic()
         trimmed, info = await trim_to_sliding_window(
             body,
-            HARD_CAP_TOKENS,
+            MODEL_CAP_TOKENS,
             SHIFT_TRIGGER,
-            SHIFT_RATIO,
+            KEEP_TARGET,
             fwd_headers,
             prior_anchor=prior_anchor,
         )
@@ -1002,6 +1089,7 @@ async def proxy(request: Request, full_path: str):
         if info is not None:
             body = trimmed
             body_size = len(body)
+            actual_tokens_sent = info.get("tokens_after")
             # Advance (or initialize) the session anchor. LRU evict if needed.
             if session_key is not None:
                 _session_watermarks[session_key] = info["anchor_after"]
@@ -1047,6 +1135,21 @@ async def proxy(request: Request, full_path: str):
 
     upstream_send_ms = (time.monotonic() - started) * 1000
     vlog(f"← {upstream_resp.status_code}  in {upstream_send_ms:.0f}ms  (streaming...)")
+
+    # [TX] Publish the real forwarded-token count for statusline.sh.
+    # Only on successful /v1/messages forwards (not count_tokens diagnostics).
+    # Per-session: pull session id from CC's header (case-insensitive).
+    if is_messages and 200 <= upstream_resp.status_code < 300:
+        if actual_tokens_sent is None:
+            # Fast path or slow-path no-op: use crude bytes/4 estimate.
+            # Fast path bodies are always small, so this is fine for the bar.
+            actual_tokens_sent = body_size // 4
+        _cc_session_id: str | None = None
+        for _k, _v in request.headers.items():
+            if _k.lower() == "x-claude-code-session-id":
+                _cc_session_id = _v
+                break
+        _publish_last_send(actual_tokens_sent, _cc_session_id)
 
     # On error (4xx/5xx), buffer the body so we can log it, then relay.
     # This helps diagnose why Anthropic rejected (token cap, byte cap, etc).
@@ -1110,9 +1213,10 @@ async def proxy(request: Request, full_path: str):
                     _write_dump("proxy_1m_dump.json", "[1m] probe")
 
                 # Over-cap 400: Anthropic rejected because the trimmed body
-                # was still over the 1M token cap. This shouldn't happen with
-                # the slice-to-target + safety loop, but if it does we want
-                # full forensics to figure out which assumption broke.
+                # was still over the 1M token cap. With single-pass slice-
+                # to-target this should only happen when a single retained
+                # turn group is itself bigger than the cap (we already log
+                # a ⚠ warning in that case). Either way, dump forensics.
                 if (
                     upstream_resp.status_code == 400
                     and isinstance(body_text, str)
@@ -1167,10 +1271,9 @@ if __name__ == "__main__":
         f"({FAST_PATH_THRESHOLD / 1024 / 1024:.2f} MB)"
     )
     log(
-        f"sliding window: hard_cap={HARD_CAP_TOKENS:,} tok  "
+        f"sliding window: model_cap={MODEL_CAP_TOKENS:,} tok  "
         f"trigger={SHIFT_TRIGGER:,} tok  "
-        f"target={int(HARD_CAP_TOKENS * SHIFT_RATIO):,} tok "
-        f"(={SHIFT_RATIO} × hard_cap)"
+        f"keep_target={KEEP_TARGET:,} tok"
     )
     log(f"mode:         {'quiet' if QUIET else 'verbose'}")
     log("set ANTHROPIC_BASE_URL=http://localhost:9999 in your client")
