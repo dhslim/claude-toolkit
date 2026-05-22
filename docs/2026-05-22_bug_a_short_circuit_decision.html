@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bug A short-circuit — decision arc — 2026-05-22</title>
+<style>
+  :root {
+    --bg: #fafaf7;
+    --fg: #1d1d1f;
+    --muted: #6b6b73;
+    --accent: #cc6633;
+    --accent-soft: #f4e8df;
+    --border: #e4e2dc;
+    --code-bg: #f3f1ec;
+    --good: #2f7d4a;
+    --good-soft: #def3e2;
+    --bad: #c0392b;
+    --bad-soft: #fbe5dc;
+    --bug-a: #2a7ab8;
+    --bug-a-soft: #dde9f3;
+    --info: #7e3f9e;
+    --info-soft: #ece0f3;
+    --neutral: #6b6b73;
+    --neutral-soft: #ecebe6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font: 16px/1.6 -apple-system, "Segoe UI", system-ui, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 48px 32px 96px; }
+  header { border-bottom: 1px solid var(--border); padding-bottom: 24px; margin-bottom: 32px; }
+  header .crumb {
+    color: var(--muted); font-size: 13px; letter-spacing: .04em;
+    text-transform: uppercase; margin-bottom: 8px;
+  }
+  header h1 { margin: 0 0 12px; font-size: 30px; line-height: 1.25; }
+  header .lede { color: var(--muted); font-size: 17px; max-width: 760px; }
+  header .meta {
+    font-size: 13px; color: var(--muted); margin-top: 14px;
+  }
+  h2 {
+    margin: 56px 0 16px; font-size: 22px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  h3 { margin: 28px 0 8px; font-size: 17px; }
+  h4 { margin: 20px 0 6px; font-size: 14px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  p { margin: 12px 0; }
+  code, pre, kbd {
+    font: 13px/1.5 "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  }
+  code { background: var(--code-bg); padding: 1px 6px; border-radius: 4px; font-size: .9em; }
+  pre {
+    background: var(--code-bg); padding: 14px 16px; border-radius: 8px;
+    overflow-x: auto; border: 1px solid var(--border);
+  }
+  pre code { background: none; padding: 0; }
+
+  .pill {
+    display: inline-block; padding: 2px 9px; border-radius: 10px;
+    font-size: 12px; font-weight: 600; letter-spacing: .02em;
+  }
+  .pill-bug-a    { background: var(--bug-a-soft); color: var(--bug-a); }
+  .pill-fixed    { background: var(--good-soft); color: var(--good); }
+  .pill-deferred { background: var(--info-soft); color: var(--info); }
+  .pill-status   { background: var(--neutral-soft); color: var(--neutral); }
+  .pill-shipped  { background: var(--good-soft); color: var(--good); }
+  .pill-proposed { background: var(--accent-soft); color: var(--accent); }
+  .pill-nothing  { background: var(--neutral-soft); color: var(--neutral); }
+
+  /* TL;DR box */
+  .tldr {
+    background: var(--accent-soft); border-left: 4px solid var(--accent);
+    padding: 18px 22px; border-radius: 6px; margin: 18px 0 32px;
+  }
+  .tldr h3 { margin-top: 0; color: var(--accent); }
+  .tldr p { margin: 6px 0; }
+
+  /* Option cards (4 across collapses to 2, then 1) */
+  .options {
+    display: grid; gap: 18px;
+    grid-template-columns: repeat(4, 1fr);
+    margin: 22px 0;
+  }
+  .opt {
+    border: 1px solid var(--border); border-radius: 10px; padding: 16px;
+    background: white; display: flex; flex-direction: column;
+  }
+  .opt h3 { margin: 0 0 6px; font-size: 15px; }
+  .opt .label { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+  .opt .summary { font-size: 13.5px; color: var(--fg); margin: 8px 0 12px; }
+  .opt .meta { font-size: 12px; color: var(--muted); margin-top: auto; padding-top: 10px; border-top: 1px dashed var(--border); }
+  .opt.opt1 { border-left: 4px solid var(--neutral); }
+  .opt.opt2 { border-left: 4px solid var(--good); background: #f4faf6; }
+  .opt.opt3 { border-left: 4px solid var(--accent); background: #fcf6f0; }
+  .opt.opt4 { border-left: 4px solid var(--info); }
+  .opt .step {
+    margin-top: 10px; font-size: 12px;
+    color: var(--muted);
+    text-align: center;
+    font-style: italic;
+  }
+  .opt .crosses-line {
+    color: var(--bad); font-weight: 600; font-size: 12px;
+    margin-top: 8px; padding-top: 8px;
+    border-top: 2px dashed var(--bad);
+    text-align: center;
+  }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  th, td { padding: 10px 12px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; font-size: 14px; }
+  th { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  td code { white-space: nowrap; }
+  td.center { text-align: center; }
+
+  /* Callouts */
+  .callout {
+    background: var(--accent-soft); border-left: 4px solid var(--accent);
+    padding: 14px 18px; border-radius: 6px; margin: 18px 0;
+  }
+  .callout.info { background: var(--bug-a-soft); border-color: var(--bug-a); }
+  .callout.warn { background: var(--bad-soft); border-color: var(--bad); }
+  .callout.note { background: var(--info-soft); border-color: var(--info); }
+  .callout .title { font-weight: 700; margin-bottom: 4px; }
+  .callout.info .title { color: var(--bug-a); }
+  .callout.warn .title { color: var(--bad); }
+  .callout.note .title { color: var(--info); }
+
+  /* Two-column compare for broker vs mock */
+  .compare2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 18px 0; }
+  .compare2 .card { border: 1px solid var(--border); border-radius: 10px; padding: 16px; background: white; }
+  .compare2 .card.broker { border-left: 4px solid var(--good); }
+  .compare2 .card.mock   { border-left: 4px solid var(--bad); }
+  .compare2 .card h3 { margin-top: 0; }
+  .compare2 .card .tagline { color: var(--muted); font-size: 13px; margin-top: -4px; margin-bottom: 10px; }
+
+  /* Reasons list */
+  .reasons { counter-reset: r; padding: 0; list-style: none; margin: 14px 0; }
+  .reasons li {
+    counter-increment: r;
+    padding: 12px 14px 12px 50px;
+    position: relative;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin: 8px 0;
+    background: white;
+    font-size: 14.5px;
+  }
+  .reasons li::before {
+    content: counter(r);
+    position: absolute;
+    left: 14px; top: 14px;
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: white;
+    font-weight: 700; font-size: 12px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .reasons li strong { display: block; margin-bottom: 4px; color: var(--fg); }
+  .reasons.counter li::before { background: var(--bad); }
+
+  /* Revisit list */
+  .revisit { border-left: 3px solid var(--info); padding-left: 16px; margin: 16px 0; }
+  .revisit li { margin: 8px 0; }
+
+  footer { margin-top: 80px; padding-top: 20px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); }
+  footer a { color: var(--accent); }
+
+  @media (max-width: 980px) {
+    .options { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 720px) {
+    .options, .compare2 { grid-template-columns: 1fr; }
+    .wrap { padding: 24px 18px 64px; }
+    header h1 { font-size: 22px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="crumb">claude-toolkit · decision record · supplement</div>
+  <h1>Bug A: should the proxy short-circuit the <code>[1m]</code> quota probe?</h1>
+  <p class="lede">
+    A focused look at one of the two bugs covered in
+    <a href="2026-05-22_context_limit_investigation.html">today's broader post-mortem</a>:
+    Claude Code's malformed <code>[1m]</code> quota probe, the four options we considered for the
+    proxy, and why we shipped the conservative one even though the aggressive one is
+    fifteen lines away.
+  </p>
+  <div class="meta">
+    2026-05-22 KST · supplement to
+    <a href="2026-05-22_context_limit_investigation.html"><code>2026-05-22_context_limit_investigation.html</code></a>
+    · related:
+    <a href="claude_proxy_explainer.html"><code>claude_proxy_explainer.html</code></a>
+  </div>
+</header>
+
+<!-- =================== TL;DR =================== -->
+<div class="tldr">
+  <h3>TL;DR</h3>
+  <p>
+    Claude Code 2.1.148 fires a malformed quota probe (<code>"claude-opus-4-7[1m]"</code> in the model id where <code>[1m]</code> should be a header); Anthropic 4xxs it; CC misreads the 4xx as "Context limit reached." We considered four proxy responses — do nothing, rewrite-and-pass, synthetic short-circuit, file upstream — and shipped <strong>rewrite-and-pass</strong> while deferring the synthetic. The synthetic stays deferred not because it's wrong but because it crosses the proxy from "honest broker" into "opinionated mock," and the alternative is cosmetic friction, not real failure.
+  </p>
+</div>
+
+<!-- =================== 1. THE PROBE =================== -->
+<h2>1 · The probe and its purpose</h2>
+
+<p>
+  On certain trigger moments — new session, near-context-low events, possibly others — Claude Code 2.1.148 fires a tiny request whose body looks like this:
+</p>
+
+<pre><code>{
+  "model": "claude-opus-4-7[1m]",
+  "max_tokens": 1,
+  "messages": [
+    {"role": "user", "content": "quota"}
+  ]
+}</code></pre>
+
+<p>
+  The <code>[1m]</code> suffix on the model id is malformed. Anthropic's 1M-context beta is opted into via a header (<code>anthropic-beta: context-1m-2025-08-07</code>), <em>not</em> by mangling the model id. Anthropic responds with a 4xx (we've seen both 404 and 429). Claude Code interprets <em>any</em> first-attempt 4xx on a turn as "context exhausted" and shows the alarming red banner:
+</p>
+
+<pre><code>  └ Context limit reached · /clear to continue</code></pre>
+
+<p>
+  ~10 s later CC silently retries the <em>real</em> request (without the bogus suffix); that one succeeds and the session continues. So the user-visible effect is a false-alarm banner that fires roughly <strong>~20 times per day</strong> on this machine and resolves itself before they can act on it.
+</p>
+
+<h3>The likely purpose <span class="pill pill-status">theory, not confirmed</span></h3>
+
+<p>
+  Why does CC send this probe at all? The cleanest hypothesis: it's an <strong>entitlement check</strong>. CC needs to decide whether to format the upcoming real turn for 200K context (default) or for 1M context (beta). It doesn't know offline which entitlement the account has — Pro caps at 200K, Max at 1M, API plans vary. So before committing the real turn's shape, it fires the cheapest possible probe asking "would a <code>[1m]</code> request be accepted?"
+</p>
+
+<ul>
+  <li>If Anthropic returns <code>200</code>: account is 1M-entitled, format the real turn for 1M.</li>
+  <li>If Anthropic returns <code>4xx</code>: fall back to 200K formatting.</li>
+</ul>
+
+<p>
+  The <code>[1m]</code> ending up in the model id rather than the header is almost certainly a regression in 2.1.148 — someone refactored the probe path and spliced the marker into the wrong field. The fallback-on-4xx logic still works (the real call goes through with the bare id), but the user sees the false-alarm banner every time the probe fails.
+</p>
+
+<h3>Supporting evidence — public GitHub issues</h3>
+
+<p>None of these are exactly this bug, but together they corroborate that <code>[1m]</code> handling regressed around this version and that 1M / 200K confusion is rampant:</p>
+
+<table>
+  <thead><tr><th>Issue</th><th>Symptom</th></tr></thead>
+  <tbody>
+    <tr><td><a href="https://github.com/anthropics/claude-code/issues/55504">#55504</a></td><td>Opus 4.7 <code>[1m]</code> capped at 200K on Max plan</td></tr>
+    <tr><td><a href="https://github.com/anthropics/claude-code/issues/49931">#49931</a></td><td><code>/context</code> shows 200K denominator while <code>[1m]</code> model is selected</td></tr>
+    <tr><td><a href="https://github.com/anthropics/claude-code/issues/34158">#34158</a></td><td>Context limit at 200K despite 1M model</td></tr>
+    <tr><td><a href="https://github.com/anthropics/claude-code/issues/24458">#24458</a>, <a href="https://github.com/anthropics/claude-code/issues/20455">#20455</a>, <a href="https://github.com/anthropics/claude-code/issues/19018">#19018</a></td><td>"Context limit reached" banner fires prematurely</td></tr>
+  </tbody>
+</table>
+
+<div class="callout info">
+  <div class="title">We have harder evidence than any of these</div>
+  Our <code>proxy_1m_dump.json</code> captures the exact malformed body, the rewritten body that <em>still</em> fails, Anthropic's 429 with <code>request_id</code>, and the CC version (<code>2.1.148</code>). None of the public issues includes the actual probe shape — they describe the user-visible symptom only.
+</div>
+
+<!-- =================== 2. FOUR OPTIONS =================== -->
+<h2>2 · The four options</h2>
+
+<div class="options">
+  <div class="opt opt1">
+    <div class="label">Option 1</div>
+    <h3>Do nothing</h3>
+    <p class="summary">Status quo before today. Probe goes straight to Anthropic; 4xx fires banner; CC self-recovers.</p>
+    <p style="font-size:12.5px;"><strong>Pros:</strong> zero proxy code.</p>
+    <p style="font-size:12.5px;"><strong>Cons:</strong> ~20 false-alarm banners/day; alarming for new users; no forensics.</p>
+    <p class="meta"><span class="pill pill-nothing">SUPERSEDED</span> · 0 LOC</p>
+  </div>
+
+  <div class="opt opt2">
+    <div class="label">Option 2 — current</div>
+    <h3>Rewrite-and-pass</h3>
+    <p class="summary">Proxy detects <code>[1m]</code> in model id, strips it, attaches the <code>anthropic-beta: context-1m-2025-08-07</code> header, dumps the body for forensics, forwards to Anthropic.</p>
+    <p style="font-size:12.5px;"><strong>Pros:</strong> honest broker preserved — Anthropic still decides; forensics dump lets us tell Bug A from Bug B if banner recurs.</p>
+    <p style="font-size:12.5px;"><strong>Cons:</strong> Anthropic still 4xxs the rewritten request (the quota path has its own validation/rate-limit), so the banner still fires. User-visible problem not solved.</p>
+    <p class="meta"><span class="pill pill-shipped">SHIPPED</span> · ~30 LOC · commit <code>b2e32a4</code></p>
+  </div>
+
+  <div class="opt opt3">
+    <div class="label">Option 3</div>
+    <h3>Synthetic short-circuit</h3>
+    <p class="summary">Proxy detects the probe fingerprint (<code>max_tokens==1</code> AND <code>content=="quota"</code>) and returns a synthetic 200 directly — never forwards to Anthropic.</p>
+    <p style="font-size:12.5px;"><strong>Pros:</strong> banner stops firing entirely; ~15 LOC; cheap rollback.</p>
+    <p style="font-size:12.5px;"><strong>Cons:</strong> proxy becomes "opinionated mock"; account-coupled (fails louder on a non-1M key); schema-drift risk.</p>
+    <p class="crosses-line">crosses the broker/mock line</p>
+    <p class="meta"><span class="pill pill-deferred">DEFERRED</span> · ~15 LOC · documented, not shipped</p>
+  </div>
+
+  <div class="opt opt4">
+    <div class="label">Option 4</div>
+    <h3>File upstream</h3>
+    <p class="summary">Open an Anthropic GitHub issue with the captured probe body, rewritten body, response, and CC version. Get it fixed at the source.</p>
+    <p style="font-size:12.5px;"><strong>Pros:</strong> highest leverage — fixes it for every CC user; renders Options 2 &amp; 3 dead code once shipped.</p>
+    <p style="font-size:12.5px;"><strong>Cons:</strong> timeline uncertain (weeks–months); doesn't help today's pain.</p>
+    <p class="meta"><span class="pill pill-proposed">TODO</span> · 0 proxy LOC · needs polished repro</p>
+  </div>
+</div>
+
+<p>
+  The crucial step in this row is between Option 2 and Option 3. Options 1, 2, 4 all keep the proxy as a transparent intermediary that doesn't speak <em>for</em> Anthropic. Option 3 quietly answers a question on Anthropic's behalf without asking. That's the line the dashed border above is marking.
+</p>
+
+<!-- =================== 3. PHILOSOPHICAL DILEMMA =================== -->
+<h2>3 · The dilemma: honest broker vs. opinionated mock</h2>
+
+<p>
+  The proxy was designed as an <em>honest broker</em>. It sits between CC and Anthropic, fixes a few mechanical issues (sliding-window trim, malformed-field rewrites), and otherwise lets Anthropic decide. Every request that goes in comes out modified-but-equivalent on the other side; every response that comes back is genuine.
+</p>
+
+<p>
+  The synthetic short-circuit moves the proxy partway into a different category. It becomes a <em>mock</em>: it answers a known-shaped question from local knowledge instead of forwarding. The dilemma isn't that mocks are inherently bad — they're how most test infrastructure works. It's that the proxy did not start life as a mock, and once one synthetic response lives in the codebase, the next "we know what CC wants here, let's just answer" temptation is easier to take.
+</p>
+
+<div class="compare2">
+  <div class="card broker">
+    <h3>Caching layer · transparent</h3>
+    <p class="tagline">Re-asks when uncertain. Forwards genuinely.</p>
+    <p>The proxy as built. Rewriting <code>[1m]</code> into a header still <em>asks</em> Anthropic the question. The answer that flows back to CC is Anthropic's answer, whatever it is.</p>
+    <p>If something behaves oddly, "look at the upstream response" is a legitimate first step. Logs are causally linked to a real round trip.</p>
+  </div>
+  <div class="card mock">
+    <h3>Mock service · opinionated</h3>
+    <p class="tagline">Answers from local knowledge. Skips the upstream.</p>
+    <p>What Option 3 would make part of the proxy. The 200 we hand CC is fabricated by us; Anthropic never saw the question.</p>
+    <p>If something behaves oddly, the proxy log shows a "200" that nobody upstream signed off on. Causal chain has a gap.</p>
+  </div>
+</div>
+
+<h3>Why this matters in practice — four reasons</h3>
+
+<ol class="reasons">
+  <li>
+    <strong>Portability.</strong>
+    The synthetic encodes the assumption "this machine's API key has 1M entitlement." Move the proxy to another machine whose key doesn't, and CC sees a fabricated "yes" — then the <em>real</em> follow-up turn (formatted for 1M) lands a 400 from Anthropic. That failure is louder and stranger than the banner the synthetic was meant to suppress.
+  </li>
+  <li>
+    <strong>Debuggability.</strong>
+    When something misbehaves three weeks from now and we read <code>proxy.log</code>, a synthetic 200 looks identical to a real upstream 200. We'd have to remember "oh, that endpoint is mocked" before we even start diagnosing. Every additional synthetic erodes the "the log tells you what happened" property.
+  </li>
+  <li>
+    <strong>Surface area / slippery slope.</strong>
+    The proxy currently has one clean rule — "be Anthropic's pass-through with a couple of small repairs." Adding synthetic responses opens a category: every future request shape we recognise becomes a candidate for short-circuiting. There's no obvious stopping rule once we start.
+  </li>
+  <li>
+    <strong>Failure modes shift, not shrink.</strong>
+    The current failure (banner) is loud and visible — the user sees a false alarm and an explicit message. A bad synthetic causes <em>subtler</em> failures (CC misbehaves quietly without an obvious culprit). Loud failures are easier to triage than quiet ones, even if they're more annoying day-to-day.
+  </li>
+</ol>
+
+<!-- =================== 4. DECISION =================== -->
+<h2>4 · Decision: ship Option 2, file Option 4, defer Option 3</h2>
+
+<p>The reasoning, in order of weight:</p>
+
+<ol class="reasons">
+  <li>
+    <strong>Bug A is cosmetic; Bug B was real.</strong>
+    The banner fires, CC retries, work continues. The actual workflow-blocking issue today was Bug B (over-cap 400s on huge sessions) — which got a real fix. Bug A is UI cry-wolf, not a stuck session.
+  </li>
+  <li>
+    <strong>Honest-broker invariant preserved.</strong>
+    Rewrite-and-pass cleans up a malformed field. It doesn't fabricate answers. Anthropic still decides.
+  </li>
+  <li>
+    <strong>Forensics-first.</strong>
+    The <code>proxy_1m_dump.json</code> in Option 2 means that if the banner reappears tomorrow we can tell instantly whether it's Bug A recurring or something new. Option 3 would silently suppress the banner whether the underlying probe was healthy or sick — we'd lose that signal.
+  </li>
+  <li>
+    <strong>Option 4 is higher-leverage.</strong>
+    A filed Anthropic-side bug fixes this for every CC user. Local synthetic patching is per-machine. Once Option 4 ships, both Options 2 and 3 become dead code.
+  </li>
+  <li>
+    <strong>Portability matters.</strong>
+    This proxy might run on other machines or accounts in the future. Option 3 has account-specific safety baked in.
+  </li>
+  <li>
+    <strong>Cheap to revisit.</strong>
+    Option 3 is fifteen lines and a proxy restart away. Deferring it is not the same as foreclosing it.
+  </li>
+</ol>
+
+<div class="callout note">
+  <div class="title">Be explicit: defensible, not obviously right</div>
+  This is "a defensible choice," not "the only defensible choice." A different engineer with the same evidence could reasonably ship Option 3 today, and the next section catalogues why.
+</div>
+
+<!-- =================== 5. COUNTER-ARGUMENTS =================== -->
+<h2>5 · Counter-arguments</h2>
+
+<p>The honest pushbacks against the chosen direction:</p>
+
+<ol class="reasons counter">
+  <li>
+    <strong>Rollback really is cheap.</strong>
+    Fifteen lines, one <code>git revert</code>, one proxy restart. The "philosophical dilemma" framing is partly a justification for caution. We could have shipped Option 3 today and reverted in 30 seconds if it broke anything.
+  </li>
+  <li>
+    <strong>"Honest broker" is a value, not a law.</strong>
+    Plenty of production proxies happily synthesise responses for known-malformed inputs — particularly when the upstream itself is buggy. The line we drew between "rewrite a field" and "answer the question" is somewhat arbitrary. Both are interventions; the difference is degree.
+  </li>
+  <li>
+    <strong>~20 banners/day is real friction.</strong>
+    Especially for new users who don't know the banner is lying. "Cosmetic" is doing a lot of work in the decision rationale; a UI element that screams "your session is dead" twenty times a day is not pure cosmetics.
+  </li>
+</ol>
+
+<!-- =================== 6. SYNTHETIC SHAPE =================== -->
+<h2>6 · For the record: what Option 3 would look like</h2>
+
+<p>If we ever ship Option 3, this is the shape we'd hand back to CC:</p>
+
+<pre><code>{
+  "id": "msg_synth_quota_&lt;uuid&gt;",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-opus-4-7",
+  "content": [
+    {"type": "text", "text": "ok"}
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 1,
+    "output_tokens": 1
+  }
+}</code></pre>
+
+<p>The detection fingerprint, paraphrased:</p>
+
+<pre><code>is_quota_probe = (
+    body.get("max_tokens") == 1
+    and len(body.get("messages", [])) == 1
+    and body["messages"][0].get("role") == "user"
+    and body["messages"][0].get("content") == "quota"
+)</code></pre>
+
+<p>
+  Tight enough that a real user request reading <code>"quota"</code> with <code>max_tokens=1</code> would also match — which is an acceptable false-positive surface (such a request would itself be malformed and produce a useless response anyway).
+</p>
+
+<!-- =================== 7. REVISIT CONDITIONS =================== -->
+<h2>7 · Revisit conditions</h2>
+
+<p>When would we reopen Option 3?</p>
+
+<ul class="revisit">
+  <li><strong>Anthropic issue languishes &gt;3 months.</strong> If Option 4 doesn't move, the cost-benefit shifts toward local patching.</li>
+  <li><strong>Onboarding friction becomes a real complaint.</strong> If anyone other than current-me ends up using this machine and the banner causes confusion or lost work, the cosmetic argument weakens.</li>
+  <li><strong>The proxy gains other synthetic responses anyway.</strong> If a future change makes synthetic responses an established pattern in this codebase (e.g. local handling of some other malformed CC request shape), the broker-invariant argument is already gone — Option 3 then costs nothing extra philosophically.</li>
+  <li><strong>CC's behaviour around the probe changes badly.</strong> If a future CC version stops the silent retry and the banner becomes <em>blocking</em>, "cosmetic" is no longer accurate and Option 3 becomes urgent.</li>
+</ul>
+
+<!-- =================== FOOTER =================== -->
+<footer>
+  Written 2026-05-22 KST. Supplement to
+  <a href="2026-05-22_context_limit_investigation.html"><code>2026-05-22_context_limit_investigation.html</code></a>.
+  Proxy architecture: <a href="claude_proxy_explainer.html"><code>claude_proxy_explainer.html</code></a>.
+  No code changed for this document; the only artefact is this file.
+</footer>
+
+</div>
+</body>
+</html>
