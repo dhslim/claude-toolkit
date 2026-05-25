@@ -72,6 +72,7 @@ def main():
                 correct_count += 1
             results.append({
                 "question": q.get('q', ''),
+                "choices": q.get('choices', []),
                 "user_answer": user_ans,
                 "correct_answer": correct,
                 "correct": is_correct,

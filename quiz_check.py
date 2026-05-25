@@ -90,8 +90,8 @@ Steps:
 7. Grade by piping the user's answers as JSON to stdin:
    echo '{{"quiz_id": "<_id from the saved quiz>", "answers": ["B", "C", "A", ...]}}' | {VENV_PYTHON} {SCRIPT_DIR}/quiz_grade.py
    This grades the quiz, saves the score to MongoDB, and marks the quiz as complete — all in one step.
-   The script returns JSON with score, total, and per-question results (including correct answers).
-   Show the user their score and explain any wrong answers using the returned data.
+   The script returns JSON with score, total, and per-question results (including the full question text, all choices, the user's answer, and the correct answer).
+   Show the user their score. For EVERY wrong answer, render the original question with all four choices verbatim (using the `choices` array from the result), mark the user's pick and the correct pick, then explain why the correct one is right. Don't summarize the question or drop the choice text — the user wants to see exactly what they got asked.
 
 ONLY dismiss the quiz if the user EXPLICITLY says one of these exact phrases: "skip quiz", "no quiz today", or "dismiss quiz".
 Do NOT dismiss based on indirect hints, casual remarks, or anything ambiguous. If unsure, ask the user directly: "Would you like to skip today's quiz?"
