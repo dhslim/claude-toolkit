@@ -79,7 +79,8 @@ def _ts() -> str:
     """Return current KST timestamp for log line prefixing."""
     return datetime.now(_KST).strftime("%Y-%m-%d %H:%M:%S")
 
-_log_path = os.environ.get("CLAUDE_PROXY_LOG_FILE", r"C:\Users\user\Desktop\claude-toolkit\proxy.log")
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_log_path = os.environ.get("CLAUDE_PROXY_LOG_FILE", str(_SCRIPT_DIR / "proxy.log"))
 if _log_path:
     try:
         _fh = open(_log_path, "a", buffering=1, encoding="utf-8")
@@ -1200,9 +1201,7 @@ async def proxy(request: Request, full_path: str):
                                 "body_len": len(body_bytes),
                             },
                         }
-                        dump_path = os.path.join(
-                            r"C:\Users\user\Desktop\claude-toolkit", filename
-                        )
+                        dump_path = str(_SCRIPT_DIR / filename)
                         with open(dump_path, "w", encoding="utf-8") as df:
                             json.dump(dump, df, indent=2, ensure_ascii=False)
                         log(f"📦 dumped {label} forensics to {dump_path}")
