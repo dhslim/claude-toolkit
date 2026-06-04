@@ -29,6 +29,9 @@ claude-toolkit/
 ├── hook_turn_start.py     # UserPromptSubmit hook — records turn start timestamp
 ├── mongo_recent.py        # Query recent activity across all machines (/mongo skill)
 ├── session_transplant.py  # Clone a session JSONL into a different cwd (/transplant skill)
+├── digest.py              # URL → platform fetcher → uniform text (/digest skill)
+├── fetchers/              # Per-platform fetchers (youtube, instagram, threads, reddit, generic)
+├── skills/                # Vendored SKILL.md manifests for each slash command
 ├── _shared.py             # Shared utilities (DB connection, retry, KST timezone)
 ├── requirements.txt       # pymongo, python-dotenv
 ├── .env.example
@@ -195,6 +198,29 @@ Distinct from `/pushback` (which is one-shot adversarial review of *your* claim)
 
 - Skill file: `~/.claude/skills/grill-me/SKILL.md`
 - Pure instructions — no script, no env vars, no path placeholders
+
+## `/digest` Skill — Universal Content Digest
+
+User-invoked slash command that fetches and summarizes any social media or web post. One command, any supported platform — `digest.py` auto-detects the platform from the URL's domain and dispatches to the matching fetcher under `fetchers/`.
+
+```
+/digest <url> [--lang en,ko]
+```
+
+| Platform | Quality (anonymous) | Comments? |
+|---|---|---|
+| YouTube (videos, Shorts, live archives) | full — title, desc, transcript | sometimes |
+| Instagram (public posts, reels, carousels) | full caption + carousel images + counts (Instaloader) | ❌ login-required |
+| Threads (single post page) | first-post text + author + image URL (og:* surface) | ❌ login-required |
+| Reddit (any public thread) | full — post body + top 25 comments by score | ✅ full tree |
+| Substack / Medium / blogs / news | generic HTML — title + body | site-dependent |
+
+Anything else routes to the generic HTML fallback. Adding a new platform = drop a module in `fetchers/` + one line in the dispatch table.
+
+- Always runs as a background task — fetches take 5–15s; type your follow-up immediately
+- Skill file: `~/.claude/skills/digest/SKILL.md` (vendored copy in `skills/digest/SKILL.md`)
+- Dispatcher: `digest.py`; fetchers: `fetchers/`
+- Deps: `yt-dlp` (YouTube + many video sites), `instaloader` (Instagram); Threads/Reddit/generic use stdlib only
 
 ## MongoDB Schema
 

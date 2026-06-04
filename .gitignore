@@ -29,3 +29,9 @@ hook_turn_timestamp.log
 
 # Quiz runtime payloads
 quiz_payload*.json
+
+# Context-viewer dump — may contain full conversation bodies; never commit.
+current_context.html
+
+# /digest test artifacts
+digest_test_image.jpg
