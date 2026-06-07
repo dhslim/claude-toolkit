@@ -23,10 +23,12 @@ claude-toolkit/
 ├── quiz_data.py           # Fetch yesterday's conversations from MongoDB
 ├── quiz_save.py           # Save generated quiz to MongoDB
 ├── quiz_grade.py          # Grade quiz, save score, and mark done (atomic)
-├── quiz_mark_done.py      # Mark quiz as completed (legacy, replaced by quiz_grade.py)
-├── daily_quiz.py          # Standalone quiz data fetcher (supports --date arg)
 ├── hook_notify.py         # Stop hook — cross-platform notification sound (>30s turns)
 ├── hook_turn_start.py     # UserPromptSubmit hook — records turn start timestamp
+├── hook_inject_time.py    # UserPromptSubmit hook — injects <current-time> KST into context
+├── hook_strip_images.py   # SessionEnd hook — strips images from session JSONL after sync
+├── strip_session_images.py # Worker that strips images in-place (run by hook_strip_images.py)
+├── _sync_runner.py        # Detached child runner spawned by hook_sync.py
 ├── mongo_recent.py        # Query recent activity across all machines (/mongo skill)
 ├── session_transplant.py  # Clone a session JSONL into a different cwd (/transplant skill)
 ├── digest.py              # URL → platform fetcher → uniform text (/digest skill)

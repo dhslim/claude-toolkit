@@ -58,6 +58,12 @@
           },
           {
             "type": "command",
+            "command": "{{REPO_DIR}}/.venv/bin/python {{REPO_DIR}}/hook_strip_images.py",
+            "timeout": 5000,
+            "async": true
+          },
+          {
+            "type": "command",
             "command": "{{REPO_DIR}}/.venv/bin/python {{REPO_DIR}}/hook_session_guard_cleanup.py",
             "timeout": 5000,
             "async": true
