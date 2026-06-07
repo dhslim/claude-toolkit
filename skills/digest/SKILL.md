@@ -14,8 +14,10 @@ Universal content digest. One command, any supported platform. The script dispat
 Run this **as a background task** (`run_in_background`) — fetches can take 5–15 seconds depending on the platform. The user expects to keep typing while it runs; present the summary when it completes.
 
 ```
-C:/Users/user/Desktop/claude-toolkit/.venv/Scripts/python.exe C:/Users/user/Desktop/claude-toolkit/digest.py $ARGUMENTS
+{{VENV_PYTHON}} {{SCRIPT_DIR}}/digest.py $ARGUMENTS
 ```
+
+**IMPORTANT**: The paths above are placeholders. During install, replace `{{VENV_PYTHON}}` and `{{SCRIPT_DIR}}` with the absolute paths to this repo's venv python and script directory.
 
 If `$ARGUMENTS` is empty, ask the user for a URL.
 

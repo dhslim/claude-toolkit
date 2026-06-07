@@ -71,7 +71,7 @@ The settings.json already references this path via `~/.claude/statusline.sh`.
 
 ### 7. Update global CLAUDE.md
 
-Read ~/.claude/CLAUDE.md (create it if it doesn't exist). If there is no "MongoDB Atlas" section, append the following block. If there is one, update it to match. Preserve all other existing content.
+Read ~/.claude/CLAUDE.md (create it if it doesn't exist). Append the two sections below ("MongoDB Atlas" and "Response timestamp"). For each section, if it already exists, update it to match; otherwise append it. Preserve all other existing content.
 
 Use the absolute path to this repo's directory and the venv python path (platform-appropriate).
 
@@ -83,6 +83,11 @@ Use the absolute path to this repo's directory and the venv python path (platfor
 - Database: `conversation-warehouse`
 - To query: `cd` to the scripts directory and use the venv python with `from _shared import get_db; client, db = get_db()` (returns tuple, not just db).
 - Schema and collections are documented in the repo's README.md.
+
+## Response timestamp
+- Each turn, a `UserPromptSubmit` hook (`hook_inject_time.py`, wired by the settings template in step 5) injects a `<current-time>YYYY-MM-DD HH:MM:SS KST</current-time>` line into the context.
+- End every response with that exact timestamp on its own line as plain text, e.g. `2026-06-07 14:32:01 KST`.
+- No emoji anywhere in responses — terminals here use cp949/utf-8 and emoji corrupt the output.
 ```
 
 ### 8. Add shell aliases
@@ -153,17 +158,28 @@ Copy the skill template from this repo to the global skills directory:
 
 This enables the `/grill-me` slash command in Claude Code, an interactive quiz where Claude grills you on a topic, file, PR, diff, commit, or concept to test and deepen your understanding — optionally calibrated with a difficulty/mode hint (`hard`, `brutal`, `interview`, `quick`, `rapid fire`). E.g. `/grill-me this PR`, `/grill-me sync_conversations.py hard`, `/grill-me "MongoDB write concern" interview`. Sibling to `/pushback`: `/pushback` argues against *your* claim in one response; `/grill-me` quizzes *you* across many turns.
 
-### 13. Recommended environment variable
+### 13. Install /digest skill
+
+Copy the skill template from this repo to the global skills directory:
+
+1. Create `~/.claude/skills/digest/SKILL.md`
+2. Use the template from `skills/digest/SKILL.md` in this repo
+3. Replace `{{VENV_PYTHON}}` with the absolute path to this repo's venv python
+4. Replace `{{SCRIPT_DIR}}` with the absolute path to this repo's directory
+
+This enables the `/digest <url>` slash command, which fetches and summarizes any supported social/web post (YouTube, Instagram, Threads, Reddit, Substack/blogs/news) via `digest.py` and the `fetchers/` package. Its extra dependencies (`yt-dlp`, `instaloader`) are already in requirements.txt, so step 2 covers them.
+
+### 14. Recommended environment variable
 
 `CLAUDE_CODE_NO_FLICKER=1` is already included in the `env` block of the platform settings templates (`platform/linux/settings.json`, `platform/macos/settings.json`, `platform/windows/settings.json`), so a standard install via step 3 picks it up automatically — no manual step needed. This is the default behavior since Claude Code v2.1.89, but setting it explicitly future-proofs against the default ever flipping. It enables fullscreen rendering and the in-app `Ctrl+O → [` history-dump trick.
 
 See `docs/scrollback.md` in this repo for the full explanation of fullscreen mode, scrollback behavior, and the `Ctrl+Home` / `Ctrl+O` navigation workflow.
 
-### 14. Apply VS Code settings + keybindings
+### 15. Apply VS Code settings + keybindings
 
 This step **applies** recommended VS Code settings and keybindings to the user's local config — it doesn't just document them. Skip this step if Claude Code isn't being used via VS Code's integrated terminal.
 
-**Important:** VS Code stores user settings on the machine where the IDE runs, not on a remote server. If this install is being run via VS Code Remote-SSH, you must run it on the LOCAL machine for these file paths to resolve correctly. If you can't reach the user's local settings file (e.g., you're on the remote side of an SSH session), skip this step and tell the user to run the install locally on their laptop for steps 13a and 13b.
+**Important:** VS Code stores user settings on the machine where the IDE runs, not on a remote server. If this install is being run via VS Code Remote-SSH, you must run it on the LOCAL machine for these file paths to resolve correctly. If you can't reach the user's local settings file (e.g., you're on the remote side of an SSH session), skip this step and tell the user to run the install locally on their laptop for steps 15a and 15b.
 
 #### Locate the two files (OS-dependent)
 
@@ -175,7 +191,7 @@ This step **applies** recommended VS Code settings and keybindings to the user's
 
 If either file doesn't exist, create the parent directory and start from `{}` for settings.json or `[]` for keybindings.json.
 
-#### 13a. Merge into settings.json
+#### 15a. Merge into settings.json
 
 Read the existing settings.json. **Preserve all existing keys that aren't in the list below** — only overwrite the specific keys here. Then write back:
 
@@ -232,7 +248,7 @@ VS Code's settings.json supports JSON-with-comments (JSONC). If the existing fil
 
 **Note:** Even with all these settings, the Copilot/Claude Code secondary sidebar may still appear when opening a **new folder** for the first time — known [VS Code bug #247175](https://github.com/microsoft/vscode/issues/247175). VS Code stores sidebar visibility in per-workspace state, not in settings.json. The user can close it once per workspace with `Cmd+Option+B` (Mac) / `Ctrl+Alt+B` (Windows) and it stays closed.
 
-#### 13b. Merge into keybindings.json
+#### 15b. Merge into keybindings.json
 
 keybindings.json is a JSON array of binding objects, not an object. Read it, then **for each binding below, remove any existing entry with the same `key` AND same `command` before appending** (to avoid duplicates if the install runs again). Then write back.
 
@@ -293,7 +309,7 @@ Bindings to add **only on Windows/Linux**:
 
 After writing both files, tell the user: "VS Code settings + keybindings applied. **Reload the VS Code window** (`Cmd/Ctrl+Shift+P` → 'Developer: Reload Window') for them to take effect."
 
-### 15. Verify
+### 16. Verify
 
 Run sync_conversations.py --scan one more time to confirm everything works.
 
