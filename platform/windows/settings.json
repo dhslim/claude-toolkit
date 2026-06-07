@@ -37,6 +37,10 @@
             "type": "command",
             "command": "{{REPO_DIR}}/.venv/Scripts/pythonw.exe {{REPO_DIR}}/hook_turn_start.py",
             "async": true
+          },
+          {
+            "type": "command",
+            "command": "{{REPO_DIR}}/.venv/Scripts/python.exe {{REPO_DIR}}/hook_inject_time.py"
           }
         ]
       }

@@ -71,7 +71,7 @@ The settings.json already references this path via `~/.claude/statusline.sh`.
 
 ### 7. Update global CLAUDE.md
 
-Read ~/.claude/CLAUDE.md (create it if it doesn't exist). If there is no "MongoDB Atlas" section, append the following block. If there is one, update it to match. Preserve all other existing content.
+Read ~/.claude/CLAUDE.md (create it if it doesn't exist). Ensure BOTH blocks below are present — for each, if its section is missing append it; if it already exists, update it to match. Preserve all other existing content.
 
 Use the absolute path to this repo's directory and the venv python path (platform-appropriate).
 
@@ -83,6 +83,15 @@ Use the absolute path to this repo's directory and the venv python path (platfor
 - Database: `conversation-warehouse`
 - To query: `cd` to the scripts directory and use the venv python with `from _shared import get_db; client, db = get_db()` (returns tuple, not just db).
 - Schema and collections are documented in the repo's README.md.
+```
+
+This second block pairs with the `hook_inject_time.py` UserPromptSubmit hook from the platform `settings.json` in step 5 (the hook injects the time; this rule tells Claude to print it). Without it, the timestamp is injected but never shown.
+
+```
+## Response timestamp
+- Every turn, a UserPromptSubmit hook (`hook_inject_time.py`, wired via step 5's settings.json) injects a `<current-time>YYYY-MM-DD HH:MM:SS KST</current-time>` line into the prompt context.
+- End EVERY response with that injected timestamp on its own final line, wrapped in single backticks so it renders as inline code (distinct color/font) in the transcript — like: `2026-06-07 09:10:09 KST`
+- Use the injected value verbatim; never guess the wall-clock time. If no `<current-time>` was injected this turn, omit the stamp rather than inventing one.
 ```
 
 ### 8. Add shell aliases
