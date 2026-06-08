@@ -41,26 +41,41 @@ except FileNotFoundError:
 if last_taken == today or last_dismissed == today:
     raise SystemExit(0)
 
-# Local cache miss — check MongoDB (source of truth, shared across machines)
-try:
-    from _shared import get_db_fast
-    client, db = get_db_fast()
-    doc = db['quiz-markers'].find_one({'date': today})
-    client.close()
-    if doc and (doc.get('taken_at') or doc.get('dismissed_at')):
-        # Another machine marked it — update local cache
-        if doc.get('taken_at'):
+# Local cache miss — check MongoDB (source of truth, shared across machines).
+# Retry transient failures, then FAIL SILENT (do not block) on hard failure.
+# Rationale: a missed nag is harmless, but false-nagging a quiz already taken
+# or dismissed on another machine is the bug we're fixing. The local cache
+# already covers the same-machine case, so silence here only affects the rare
+# "fresh on this machine AND MongoDB unreachable" double-fault.
+import sys as _sys
+
+marker = None
+mongo_ok = False
+for attempt in range(2):
+    try:
+        from _shared import get_db_fast
+        client, db = get_db_fast(timeout_ms=2500)
+        marker = db['quiz-markers'].find_one({'date': today})
+        client.close()
+        mongo_ok = True
+        break
+    except Exception as e:
+        print(f'[quiz_check] MongoDB check attempt {attempt + 1} failed: '
+              f'{type(e).__name__}: {e}', file=_sys.stderr)
+
+if mongo_ok:
+    if marker and (marker.get('taken_at') or marker.get('dismissed_at')):
+        # Another machine marked it — cache locally so future fires skip MongoDB
+        if marker.get('taken_at'):
             TAKEN_FILE.write_text(today, encoding='utf-8')
-        if doc.get('dismissed_at'):
+        if marker.get('dismissed_at'):
             DISMISSED_FILE.write_text(today, encoding='utf-8')
         raise SystemExit(0)
-except SystemExit:
-    raise
-except Exception as e:
-    # MongoDB unreachable — fall through to show quiz (safe default)
-    import sys as _sys
-    print(f'[quiz_check] MongoDB check failed: {type(e).__name__}: {e}', file=_sys.stderr)
-    pass
+    # Reachable and confirms genuinely pending — fall through to show the quiz
+else:
+    # Unreachable after retries — stay silent rather than false-nag
+    print('[quiz_check] MongoDB unreachable after retries; failing silent', file=_sys.stderr)
+    raise SystemExit(0)
 
 # Write detailed instructions to a temp file for Claude to read
 instructions = f"""[DAILY QUIZ] The user has not taken today's quiz yet.
