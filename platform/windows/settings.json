@@ -3,7 +3,8 @@
     "defaultMode": "bypassPermissions"
   },
   "env": {
-    "CLAUDE_CODE_NO_FLICKER": "1"
+    "CLAUDE_CODE_NO_FLICKER": "1",
+    "CLAUDE_CODE_EFFORT_LEVEL": "max"
   },
   "hooks": {
     "Stop": [
@@ -94,6 +95,8 @@
     "command": "~/.claude/statusline.sh",
     "padding": 1
   },
+  "effortLevel": "xhigh",
+  "model": "opus[1m]",
   "autoUpdatesChannel": "latest",
   "skipDangerousModePermissionPrompt": true,
   "tui": "fullscreen",
