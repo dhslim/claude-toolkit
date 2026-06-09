@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clawd "Jump to Terminal" Window-Focus Fix - Checkpoint</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --ink:#e6e8eb; --muted:#9aa3af; --accent:#f08a5d; --good:#69d18a; --bad:#ef6f6f; --line:#2a2f3a; --code:#0b0d11; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",Arial,sans-serif; line-height:1.6; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 40px 24px 80px; }
+  h1 { font-size: 26px; margin: 0 0 6px; }
+  h2 { font-size: 20px; margin: 38px 0 12px; padding-bottom:6px; border-bottom:1px solid var(--line); }
+  h3 { font-size: 15px; margin: 22px 0 8px; color: var(--accent); }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 28px; }
+  p, li { font-size: 15px; }
+  code, pre { font-family:"SF Mono","JetBrains Mono",Consolas,monospace; }
+  code { background:var(--code); padding:1px 5px; border-radius:4px; font-size: 13px; color:#dfe6ee; }
+  pre { background:var(--code); border:1px solid var(--line); border-radius:8px; padding:14px 16px; overflow-x:auto; font-size:12.5px; line-height:1.5; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px 20px; margin:14px 0; }
+  table { width:100%; border-collapse:collapse; margin:14px 0; font-size:13.5px; }
+  th,td { text-align:left; padding:9px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; }
+  .tag { display:inline-block; font-size:11px; padding:2px 7px; border-radius:20px; border:1px solid var(--line); color:var(--muted); }
+  .tag.desk { color:#f0b35d; border-color:#5a4528; }
+  .tag.ext  { color:#7fb3ff; border-color:#28415a; }
+  .good { color:var(--good); } .bad { color:var(--bad); } .accent { color:var(--accent); }
+  .flow { font-family:"SF Mono",Consolas,monospace; white-space:pre; background:var(--code); border:1px solid var(--line); border-radius:8px; padding:16px; font-size:12.5px; color:#cdd6e0; overflow-x:auto; }
+  .note { border-left:3px solid var(--accent); padding:6px 14px; margin:14px 0; background:rgba(240,138,93,0.06); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Clawd "Jump to Terminal" -> correct VS Code window</h1>
+<div class="sub">Working checkpoint &middot; 2026-06-09 &middot; machine: Windows 10, ~9 concurrent VS Code windows, Clawd on Desk</div>
+
+<div class="panel">
+<strong>One line:</strong> Clawd's "Jump to Terminal" focused the <span class="bad">wrong</span> VS Code window because every window shares one <code>Code.exe</code> PID. Fixed entirely with editable-file patches + same-length byte edits to the packed app &mdash; <span class="good">no asar repack</span>. End state: jumps land on the correct window, all windows supported (not just 5), no visible flicker.
+</div>
+
+<h2>1. The two components involved</h2>
+<p>This whole thing lives at the seam between two separate pieces of "Clawd":</p>
+<table>
+<tr><th>Component</th><th>What it is</th><th>Where it lives</th></tr>
+<tr>
+  <td><span class="tag desk">clawd-desk</span> <strong>Clawd on Desk</strong></td>
+  <td>The Electron desktop "pet" app. Detects Claude Code sessions (via hooks), shows session cards, and on <em>Jump to Terminal</em> performs the OS-level window focus.</td>
+  <td><code>%LOCALAPPDATA%\Programs\Clawd on Desk\</code><br>core logic in <code>resources\app.asar</code> (packed), helpers + native <code>koffi</code> FFI in <code>app.asar.unpacked\</code></td>
+</tr>
+<tr>
+  <td><span class="tag ext">extension</span> <strong>Clawd Terminal Focus</strong></td>
+  <td>A tiny VS Code extension (<code>clawd.clawd-terminal-focus</code> v0.1.1). Runs a localhost HTTP server <em>per window</em>; when Clawd POSTs a terminal PID it reveals that terminal tab.</td>
+  <td>installed copy: <code>~\.vscode\extensions\clawd.clawd-terminal-focus-0.1.1\extension.js</code><br>bundled source (re-deployed on app start): <code>app.asar.unpacked\extensions\vscode\extension.js</code></td>
+</tr>
+</table>
+
+<h2>2. The root cause</h2>
+<p>VS Code multiplexes <em>every</em> project window under a <strong>single <code>Code.exe</code> process</strong>. Clawd's desktop-side focus walks the Claude process tree up to that <code>Code.exe</code> and raises its <code>MainWindowHandle</code> &mdash; but Windows returns whichever of the 9 windows is frontmost, so the focus lands on the <span class="bad">wrong window</span>. A breadth audit found <strong>4 of 6</strong> live sessions resolving to the wrong window.</p>
+<p>The Clawd Terminal Focus extension <em>could</em> fix it &mdash; the extension instance that owns the right terminal is, by definition, already running <em>inside the correct window</em> &mdash; but stock, it only calls <code>terminal.show()</code> (right tab, still wrong window).</p>
+
+<h2>3. The focus flow (and where the flicker came from)</h2>
+<div class="flow">CLICK "Jump to Terminal"
+   |
+   |  <span class="tag desk">clawd-desk</span> focusTerminalWindow(request)
+   |
+   +--&gt; STAGE 1  requestWindowsFocus()   [fires immediately]
+   |        persistent PowerShell -&gt; [WinFocus]::Focus(MainWindowHandle)
+   |        => raises the WRONG window            <span class="bad">(this is "B")</span>
+   |
+   +--&gt; STAGE 2  scheduleTerminalTabFocus()  [setTimeout, was 800ms]
+            POST /focus-tab {pids} to ports 23456..N
+                |
+                v  <span class="tag ext">extension</span> in the matching window
+            terminal.show()      => right tab
+            raiseOwnWindow()     => raises the CORRECT window   <span class="good">(this is "C")</span>
+
+Perceived:  A (current) -&gt; B (wrong, flash) -&gt; C (correct)
+Goal:       A (current) ----------------------&gt; C (correct)</div>
+<p>The flicker existed because Stage 1 paints the wrong window the instant you click, and Stage 2 can only correct it <em>after</em> a delay. The final fix deletes Stage 1's raise entirely, so B never happens.</p>
+
+<h2>4. The fix, in the order it evolved</h2>
+
+<h3>4a. Teach the extension to raise its own window <span class="tag ext">extension</span></h3>
+<p>Added <code>raiseOwnWindow()</code> to <code>focusTerminalByPids</code>: after <code>terminal.show()</code>, the extension reads its own workspace folder basename (e.g. <code>claude-toolkit</code>), finds the visible <code>Code.exe</code> window whose title contains that name, and raises it with the <code>AttachThreadInput</code> + <code>SetForegroundWindow</code> trick (defeats Windows' foreground lock). Verified each of the 9 windows has a unique folder name in its title.</p>
+
+<h3>4b. Make it actually run, then make it instant (v1 -> v4) <span class="tag ext">extension</span></h3>
+<table>
+<tr><th>Ver</th><th>Change</th><th>Why</th></tr>
+<tr><td>v1</td><td>spawn <code>powershell.exe</code>, AttachThreadInput raise</td><td>first cut; window didn't move</td></tr>
+<tr><td>v2/v3</td><td>full path to <code>powershell.exe</code> + debug log to <code>%TEMP%\clawd-focus-debug.log</code></td><td>the ext-host has a stripped PATH; logging proved the raise WAS running but a fresh spawn each click was slow/variable</td></tr>
+<tr><td><strong>v4</strong></td><td><strong>persistent warm PowerShell helper</strong>: compile the Win32 focus type <em>once</em>, keep it alive, feed it the window name per click via stdin</td><td>drops each raise from ~350ms (spawn+compile) to ~20ms, and makes it consistent</td></tr>
+</table>
+
+<h3>4c. Remove the 5-window limit <span class="tag ext">extension</span> + <span class="tag desk">clawd-desk</span></h3>
+<p>Both sides hardcoded 5 ports (23456-23460), one per window &mdash; so only 5 of ~9 windows ever got a focus listener. Raised to 44 (ports 23456-23499):</p>
+<ul>
+<li><span class="tag ext">extension</span> <code>PORT_RANGE = 5</code> -> <code>44</code> (how many ports the extension will try to bind).</li>
+<li><span class="tag desk">clawd-desk</span> the broadcast loop upper bound <code>port &lt;= 23460</code> -> <code>23499</code> (which ports the app POSTs to). Same-length byte edit (both 5 digits), so no repack.</li>
+</ul>
+<p class="note"><strong>Why 44 and not more?</strong> The packed edit must keep the byte length identical (so the asar header offsets stay valid). <code>23460</code> -> <code>23499</code> keeps it 5 digits and inside the original <code>234xx</code> block. <code>23456..23499 = 44</code> windows. Could go to 23999 (544) just as safely; 44 is already overkill.</p>
+
+<h3>4d. Cut the delay <span class="tag desk">clawd-desk</span></h3>
+<p>Stage 2's <code>setTimeout(..., 800)</code> was 800ms. Byte-edited <code>800</code> -> <code>200</code> (same 3 digits). Safe for the race because our warm-helper raise is still bounded below by spawn latency, so it always lands after Stage 1.</p>
+
+<h3>4e. Delete Stage 1 entirely (the flicker killer) <span class="tag desk">clawd-desk</span></h3>
+<p>The clean fix for the flicker: stop Clawd from ever painting the wrong window. Inside the packed <code>WinFocus</code> C# helper:</p>
+<pre>void Focus(IntPtr hWnd) {
+    if (hWnd == IntPtr.Zero) return;          // guard
+    if (IsIconic(hWnd)) ShowWindow(hWnd, 9);  // restore if minimized
+    keybd_event(0x12, ...); keybd_event(0x12, ...);  // ALT-trick
+    SetForegroundWindow(hWnd);                 // <- the wrong-window raise
+}</pre>
+<p>Flipping the guard's <code>==</code> to <code>!=</code> (one byte, <code>=</code> -> <code>!</code>) makes the method <strong>return immediately for any real window</strong> &mdash; the whole body (restore + ALT + SetForegroundWindow) becomes a no-op. Clawd still runs its bookkeeping and still fires Stage 2, but it paints nothing. Result: <span class="good">A -> C, no B, no flicker.</span></p>
+<p>An identical guard exists in another method (<code>GetWindowClass</code>-style, returns <code>""</code>); it was left untouched by anchoring the edit to the unique <code>SetForegroundWindow(hWnd)</code> call.</p>
+
+<h2>5. Final change set</h2>
+<table>
+<tr><th>#</th><th>Change</th><th>Component / file</th><th>Activate by</th></tr>
+<tr><td>1</td><td><code>raiseOwnWindow()</code> + persistent warm helper (v4)</td><td><span class="tag ext">extension</span> extension.js (2 copies)</td><td>Reload VS Code window (Restart Extension Host)</td></tr>
+<tr><td>2</td><td><code>PORT_RANGE 5 -> 44</code></td><td><span class="tag ext">extension</span> extension.js (2 copies)</td><td>Reload VS Code window</td></tr>
+<tr><td>3</td><td>broadcast <code>23460 -> 23499</code></td><td><span class="tag desk">clawd-desk</span> app.asar</td><td>Restart Clawd app</td></tr>
+<tr><td>4</td><td>delay <code>800 -> 200</code></td><td><span class="tag desk">clawd-desk</span> app.asar</td><td>Restart Clawd app</td></tr>
+<tr><td>5</td><td>Stage-1 Focus guard <code>== -> !=</code></td><td><span class="tag desk">clawd-desk</span> app.asar</td><td>Restart Clawd app</td></tr>
+</table>
+<p class="note"><strong>Rule of thumb:</strong> extension edits need a <em>VS Code window reload</em>; <code>app.asar</code> edits need a <em>Clawd app restart</em>.</p>
+
+<h2>6. Exact byte recipe (for reproduction)</h2>
+<p>All three <code>app.asar</code> edits are <strong>same-length, in-place byte overwrites</strong> (the asar is a header of file offsets/sizes + concatenated bodies; keeping total length identical keeps every offset valid, so no repack). Target file: <code>...\Clawd on Desk\resources\app.asar</code>. Backup kept as <code>app.asar.clawd-orig</code>.</p>
+<pre>1) broadcast range   find  "port &lt;= 23460"   set  "port &lt;= 23499"
+2) focus delay        in the /focus-tab setTimeout, "}, 800)" -> "}, 200)"
+3) stage-1 neuter     the WinFocus Focus guard preceding the unique
+                      "SetForegroundWindow(hWnd)" call:
+                      "hWnd == IntPtr.Zero) return"  ->  "hWnd != IntPtr.Zero) return"
+
+Extension (plain text edit, both copies):
+   const PORT_RANGE = 5   ->   const PORT_RANGE = 44
+   + the raiseOwnWindow()/warm-helper block (see patches/clawd-focus/extension.patched.js)</pre>
+
+<h2>7. Reapply &amp; revert</h2>
+<ul>
+<li><strong>Extension</strong> (reverted by a Clawd update re-deploying its VSIX): <code>patches\clawd-focus\apply.ps1</code> redeploys the patched <code>extension.js</code> to both copies; <code>apply.ps1 -Revert</code> restores stock.</li>
+<li><strong>app.asar</strong> (the three byte edits): currently re-applied manually via the recipe above. Full revert: restore <code>app.asar.clawd-orig</code>. <span class="muted">(Folding the asar edits into apply.ps1 is the remaining to-do.)</span></li>
+</ul>
+
+<h2>8. Caveats / not covered</h2>
+<ul>
+<li><strong>SSH-remote windows</strong> (<code>[SSH: host]</code>) are <span class="bad">not</span> handled: the extension is a workspace extension that would run on the remote host (Linux, no Win32 raise), the terminal PIDs are remote, and the local-PID matching doesn't apply. Would need a separate title-based path.</li>
+<li><strong>Git worktrees with no open window</strong> have no window to raise &mdash; unavoidable.</li>
+<li><strong>Side effect of 4e:</strong> Clawd's built-in focus is now off for <em>all</em> editors, not just VS Code. Fine for a VS-Code-only workflow; the extension handles VS Code.</li>
+<li><strong>Update fragility:</strong> a Clawd update reverts the <code>app.asar</code> edits and re-deploys the stock extension. Re-apply via the recipe + <code>apply.ps1</code>.</li>
+<li><strong>asar integrity:</strong> confirmed Clawd does <em>not</em> verify <code>app.asar</code> integrity (it relaunched fine after every byte edit), which is what makes the in-place edits viable.</li>
+</ul>
+
+<h2>9. Status</h2>
+<p class="good">Working checkpoint: jumps land on the correct window across all windows, the 5-window cap is gone (44), focus is snappy (~200ms), and the wrong-window flicker is eliminated &mdash; all via editable-file patches and same-length byte edits, no asar repack.</p>
+
+</div>
+</body>
+</html>
