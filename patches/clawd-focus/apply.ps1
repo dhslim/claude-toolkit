@@ -15,6 +15,8 @@ param([switch]$Revert)
 #                                -> "hWnd != IntPtr.Zero) return"
 #           (neuters Clawd's own wrong-window raise -> no flicker; the
 #            extension is then the ONLY thing that focuses windows)
+#        D. Sessions window width   "DEFAULT_WIDTH = 480" -> "= 960"
+#           (cosmetic: the dashboard/Sessions window opens wide by default)
 #
 # Safe to run any time:
 #   - idempotent (skips anything already patched/applied)
@@ -108,7 +110,7 @@ if (-not (Test-Path $asarPath)) {
     # Only restore the backup onto an asar that actually carries our edits;
     # a fresh Clawd update ships a new (stock) asar that a stale backup
     # would silently downgrade.
-    $hasEdits = $s.Contains("port <= 23499") -or $s.Contains("hWnd != IntPtr.Zero) return")
+    $hasEdits = $s.Contains("port <= 23499") -or $s.Contains("hWnd != IntPtr.Zero) return") -or $s.Contains("DEFAULT_WIDTH = 960")
     if (-not (Test-Path $asarBak)) { Write-Warning "no asar backup ($asarBak) - nothing to revert" }
     elseif (-not $hasEdits) { Write-Host "asar looks stock/new (no edits present) - stale backup NOT restored" }
     else { Copy-Item $asarBak $asarPath -Force; Write-Host "asar reverted from backup. Restart the Clawd app." }
@@ -163,6 +165,18 @@ if (-not (Test-Path $asarPath)) {
       } else {
         Write-Warning "Focus-guard anchor not found in expected shape - Clawd changed; re-derive this edit"
       }
+    }
+
+    # --- Edit D: Sessions (dashboard) window default width 480 -> 960 -------
+    if ($s.Contains("DEFAULT_WIDTH = 960")) {
+      Write-Host "already applied: Sessions window width (960)"
+    } elseif ((CountOcc $s "DEFAULT_WIDTH = 480") -eq 1) {
+      $i = $s.IndexOf("DEFAULT_WIDTH = 480") + 16   # the '4' of 480
+      $bytes[$i] = 57; $bytes[$i + 1] = 54           # '48' -> '96'  => 960
+      $changed = $true
+      Write-Host "applied: Sessions window default width 480 -> 960"
+    } else {
+      Write-Warning "Sessions-width anchor 'DEFAULT_WIDTH = 480' not found/unique - Clawd changed; re-derive this edit"
     }
 
     if ($changed) {

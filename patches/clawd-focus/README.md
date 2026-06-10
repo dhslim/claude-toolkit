@@ -38,6 +38,7 @@ Three **same-length, in-place byte overwrites** to the packed desktop app
 | A | broadcast loop `port <= 23460` → `23499` | app reaches all 44 extension ports, not 5 |
 | B | focus-tab delay `}, 800)` → `}, 200)` | correct focus arrives ~600 ms sooner |
 | C | `WinFocus::Focus` guard `hWnd ==` → `hWnd !=` | **neuters Clawd's own wrong-window raise** → zero flicker |
+| D | dashboard `DEFAULT_WIDTH = 480` → `960` | Sessions window opens wide by default (cosmetic) |
 
 After Edit C the extension is the *only* thing that focuses windows: Clawd's
 broken stage-1 raise becomes a silent no-op (A → C, no wrong-window B). Side
