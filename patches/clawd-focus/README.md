@@ -28,9 +28,9 @@ foreground lock). A **persistent warm PowerShell helper** compiles the Win32 cod
 once at startup, so each raise is ~instant. `PORT_RANGE` is bumped 5 → 44 so more
 than five windows can each bind a focus port.
 
-### 2. app.asar byte edits — routing + flicker removal
+### 2. app.asar byte edits — routing, flicker removal + a cosmetic
 
-Three **same-length, in-place byte overwrites** to the packed desktop app
+Four **same-length, in-place byte overwrites** to the packed desktop app
 (no asar repack; offsets stay valid because the total length never changes):
 
 | Edit | Change | Effect |
