@@ -3,23 +3,13 @@ input=$(cat)
 
 MODEL=$(echo "$input" | jq -r '.model.display_name // "Claude"')
 DIR=$(echo "$input" | jq -r '.cwd // "~"')
+# Effort level, straight from CC's statusline payload (low/medium/high/xhigh).
+# NOTE: ultracode reports as "xhigh" here BY DESIGN — CC collapses it (the effort
+# enum stops at xhigh; ultracode is a session-only overlay; upstream
+# anthropics/claude-code#63468). We accept that and do NOT try to distinguish
+# them: the only signal is the transcript, and scraping it is poisonable by any
+# text that mentions the /effort toggle. So "(xhigh)" may mean xhigh OR ultracode.
 EFFORT=$(echo "$input" | jq -r '.effort.level // empty')
-
-# Ultracode detection: CC collapses "ultracode" -> "xhigh" in the payload BY
-# DESIGN (the effort enum stops at xhigh; ultracode is a session-only overlay;
-# upstream issue anthropics/claude-code#63468). So effort.level can't tell them
-# apart. The only on-disk trace is the /effort command output, written to the
-# transcript as a literal "<local-command-stdout>Set effort level to <level>..."
-# line. Whole-file grep, anchored on that tag, last toggle wins. (The "Ultracode
-# is on/off" reminder is ephemeral and never persisted, so we don't use it.)
-# Heuristic & best-effort: breaks if CC rewords that stdout. ~30ms on a 6MB log.
-TRANSCRIPT_EARLY=$(echo "$input" | jq -r '.transcript_path // empty')
-if [ -n "$EFFORT" ] && [ -n "$TRANSCRIPT_EARLY" ] && [ -f "$TRANSCRIPT_EARLY" ]; then
-    MARK=$(grep -aoE '<local-command-stdout>Set effort level to (ultracode|[a-z]+)' "$TRANSCRIPT_EARLY" 2>/dev/null | tail -n1)
-    case "$MARK" in
-        *ultracode*) EFFORT="ultracode" ;;
-    esac
-fi
 
 # ---- Forward-token bar (preferred) -------------------------------------
 # claude_proxy.py writes "<tokens>\t<unix_ts>\n" to a PER-SESSION TSV file
