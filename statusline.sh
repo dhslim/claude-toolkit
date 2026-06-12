@@ -3,6 +3,23 @@ input=$(cat)
 
 MODEL=$(echo "$input" | jq -r '.model.display_name // "Claude"')
 DIR=$(echo "$input" | jq -r '.cwd // "~"')
+EFFORT=$(echo "$input" | jq -r '.effort.level // empty')
+
+# Ultracode detection: CC collapses "ultracode" -> "xhigh" in the payload BY
+# DESIGN (the effort enum stops at xhigh; ultracode is a session-only overlay;
+# upstream issue anthropics/claude-code#63468). So effort.level can't tell them
+# apart. The only on-disk trace is the /effort command output, written to the
+# transcript as a literal "<local-command-stdout>Set effort level to <level>..."
+# line. Whole-file grep, anchored on that tag, last toggle wins. (The "Ultracode
+# is on/off" reminder is ephemeral and never persisted, so we don't use it.)
+# Heuristic & best-effort: breaks if CC rewords that stdout. ~30ms on a 6MB log.
+TRANSCRIPT_EARLY=$(echo "$input" | jq -r '.transcript_path // empty')
+if [ -n "$EFFORT" ] && [ -n "$TRANSCRIPT_EARLY" ] && [ -f "$TRANSCRIPT_EARLY" ]; then
+    MARK=$(grep -aoE '<local-command-stdout>Set effort level to (ultracode|[a-z]+)' "$TRANSCRIPT_EARLY" 2>/dev/null | tail -n1)
+    case "$MARK" in
+        *ultracode*) EFFORT="ultracode" ;;
+    esac
+fi
 
 # ---- Forward-token bar (preferred) -------------------------------------
 # claude_proxy.py writes "<tokens>\t<unix_ts>\n" to a PER-SESSION TSV file
@@ -88,6 +105,7 @@ CYAN='\033[36m'
 GREEN='\033[32m'
 YELLOW='\033[33m'
 RED='\033[31m'
+MAGENTA='\033[35m'
 RESET='\033[0m'
 
 if [ "$PCT" -ge 90 ]; then BAR_COLOR="$RED"
@@ -114,6 +132,7 @@ FIVE_H_RESET=$(echo "$input" | jq -r '.rate_limits.five_hour.resets_at // empty'
 
 # Line 1
 LINE="${CYAN}${MODEL}${RESET}"
+[ -n "$EFFORT" ] && LINE="$LINE ${MAGENTA}(${EFFORT})${RESET}"
 [ -n "$BRANCH" ] && LINE="$LINE | ${GREEN}${BRANCH}${RESET} [${STATUS}]"
 LINE="$LINE | ${SEG_LABEL} ${BAR_COLOR}[${BAR}]${RESET} ${PCT}%"
 [ -n "$SIZE_STR" ] && LINE="$LINE | ${SIZE_STR}"
@@ -134,5 +153,5 @@ if [ -n "$FIVE_H" ]; then
 fi
 
 echo -e "$LINE"
-# Line 2: full path (printf %s — avoid echo -e, which would treat \c, \n etc. in Windows paths as escapes)
+# Line 2: full path (printf %s -- avoid echo -e, which would treat \c, \n etc. in Windows paths as escapes)
 printf '%s\n' "$DIR"
