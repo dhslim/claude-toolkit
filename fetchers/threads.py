@@ -18,6 +18,8 @@ For the typical /digest use case (single Threads post → summarize),
 this is enough. Reply chains need login or copy-paste.
 """
 
+from __future__ import annotations  # PEP 604 `X | None` hints on the 3.9 venv
+
 import re
 import urllib.parse
 import urllib.request

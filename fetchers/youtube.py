@@ -5,6 +5,8 @@ subtitle languages first via metadata-only extract_info, then only request
 langs that actually exist. Avoids HTTP 429 spam.
 """
 
+from __future__ import annotations  # PEP 604 `X | None` hints on Python 3.9 venv
+
 import re
 import tempfile
 from pathlib import Path

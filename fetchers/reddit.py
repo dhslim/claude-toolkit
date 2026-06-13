@@ -5,6 +5,8 @@ structured JSON. No auth needed for public subs. Walks the comment tree
 and flattens top-N comments by score.
 """
 
+from __future__ import annotations  # PEP 604 `X | None` hints on the 3.9 venv
+
 import json
 import urllib.parse
 import urllib.request

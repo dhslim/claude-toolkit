@@ -7,6 +7,8 @@ the largest <article>/<main>/<div> by text length. Not as smart as
 Readability.js but zero extra deps and good enough for most blog posts.
 """
 
+from __future__ import annotations  # PEP 604 `X | None` hints on the 3.9 venv
+
 import re
 import urllib.parse
 import urllib.request

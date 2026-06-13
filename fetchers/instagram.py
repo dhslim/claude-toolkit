@@ -11,6 +11,8 @@ comments reliably, they can opt in via IG_USERNAME env var (NOT implemented
 in this MVP — added once we know anonymous limits).
 """
 
+from __future__ import annotations  # PEP 604 `X | None` hints on the 3.9 venv
+
 import re
 import urllib.parse
 import urllib.request
