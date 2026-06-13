@@ -7,12 +7,11 @@ the largest <article>/<main>/<div> by text length. Not as smart as
 Readability.js but zero extra deps and good enough for most blog posts.
 """
 
-from __future__ import annotations  # PEP 604 `X | None` hints on the 3.9 venv
-
 import re
 import urllib.parse
 import urllib.request
 from html import unescape
+from typing import Optional
 
 
 _HEADERS = {
@@ -27,7 +26,7 @@ _HEADERS = {
 _MAX_BODY_CHARS = 50_000  # cap absurdly long pages
 
 
-def _og(html: str, prop: str) -> str | None:
+def _og(html: str, prop: str) -> Optional[str]:
     m = re.search(
         rf'<meta\s+(?:property|name)=["\']og:{prop}["\']\s+content=["\']([^"\']+)["\']',
         html, re.IGNORECASE,
@@ -42,7 +41,7 @@ def _og(html: str, prop: str) -> str | None:
     return unescape(m.group(1)) if m else None
 
 
-def _title(html: str) -> str | None:
+def _title(html: str) -> Optional[str]:
     m = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
     return unescape(m.group(1).strip()) if m else None
 
@@ -62,7 +61,7 @@ def _strip_tags(html_chunk: str) -> str:
     return text
 
 
-def _extract_body(html: str) -> str | None:
+def _extract_body(html: str) -> Optional[str]:
     """Find the chunk most likely to be the article body."""
     candidates: list[tuple[int, str]] = []
     # Prefer <article>, then <main>, then large <div>s

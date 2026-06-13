@@ -36,6 +36,7 @@ import platform
 import shutil
 import sys
 from pathlib import Path
+from typing import Optional
 
 
 PROXY_PY = (Path(__file__).resolve().parent / "claude_proxy.py").as_posix()
@@ -126,7 +127,7 @@ def detect_os() -> str:
     return s.lower()
 
 
-def find_real_claude() -> str | None:
+def find_real_claude() -> Optional[str]:
     return shutil.which("claude")
 
 

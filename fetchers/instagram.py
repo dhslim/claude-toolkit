@@ -11,11 +11,10 @@ comments reliably, they can opt in via IG_USERNAME env var (NOT implemented
 in this MVP — added once we know anonymous limits).
 """
 
-from __future__ import annotations  # PEP 604 `X | None` hints on the 3.9 venv
-
 import re
 import urllib.parse
 import urllib.request
+from typing import Optional
 
 import instaloader
 import yt_dlp
@@ -32,7 +31,7 @@ _HTML_HEADERS = {
 _MAX_COMMENTS = 25  # cap for the digest output
 
 
-def _shortcode_from_url(url: str) -> str | None:
+def _shortcode_from_url(url: str) -> Optional[str]:
     """Extract the shortcode from any Instagram post/reel URL.
 
     Patterns we accept:
@@ -49,7 +48,7 @@ def _strip_query(url: str) -> str:
     return urllib.parse.urlunparse(parsed._replace(query="", fragment=""))
 
 
-def _try_instaloader(shortcode: str) -> dict | None:
+def _try_instaloader(shortcode: str) -> Optional[dict]:
     """Attempt anonymous Instaloader fetch. Returns dict on success, None on fail."""
     L = instaloader.Instaloader(
         download_pictures=False,
@@ -85,7 +84,7 @@ def _try_instaloader(shortcode: str) -> dict | None:
 
     # Comments — attempt anonymous; this is the most likely point of failure
     comments_data: list[dict] = []
-    comments_error: str | None = None
+    comments_error: Optional[str] = None
     try:
         for i, comment in enumerate(post.get_comments()):
             if i >= _MAX_COMMENTS:
@@ -120,7 +119,7 @@ def _try_instaloader(shortcode: str) -> dict | None:
     }
 
 
-def _try_ytdlp(url: str) -> dict | None:
+def _try_ytdlp(url: str) -> Optional[dict]:
     """Last-ditch: yt-dlp for video reels (it doesn't handle image posts)."""
     try:
         opts = {"quiet": True, "no_warnings": True, "skip_download": True}

@@ -18,12 +18,11 @@ For the typical /digest use case (single Threads post → summarize),
 this is enough. Reply chains need login or copy-paste.
 """
 
-from __future__ import annotations  # PEP 604 `X | None` hints on the 3.9 venv
-
 import re
 import urllib.parse
 import urllib.request
 from html import unescape
+from typing import Optional
 
 
 # facebookexternalhit is Meta's own crawler — it serves the og:* preview
@@ -35,7 +34,7 @@ _CRAWLER_HEADERS = {
 }
 
 
-def _og(html: str, prop: str) -> str | None:
+def _og(html: str, prop: str) -> Optional[str]:
     m = re.search(
         rf'<meta\s+property=["\']og:{prop}["\']\s+content=["\']([^"\']*)["\']',
         html, re.IGNORECASE,
@@ -43,7 +42,7 @@ def _og(html: str, prop: str) -> str | None:
     return unescape(m.group(1)) if m else None
 
 
-def _parse_handle(og_title: str | None) -> tuple[str | None, str | None]:
+def _parse_handle(og_title: Optional[str]) -> tuple[Optional[str], Optional[str]]:
     """Title looks like: 'Solomon Eseme | AI Backend Engineer (@kaperskyguru) on Threads'
     Return (display_name, handle).
     """
@@ -55,7 +54,7 @@ def _parse_handle(og_title: str | None) -> tuple[str | None, str | None]:
     return og_title, None
 
 
-def _parse_url(url: str) -> tuple[str | None, str | None]:
+def _parse_url(url: str) -> tuple[Optional[str], Optional[str]]:
     """Extract (handle, post_id) from a Threads URL.
 
     Patterns:

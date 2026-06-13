@@ -71,6 +71,7 @@ from collections import OrderedDict
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from typing import Optional
 
 _KST = timezone(timedelta(hours=9))
 
@@ -175,7 +176,7 @@ QUIET = os.environ.get("CLAUDE_PROXY_QUIET", "").strip() not in ("", "0", "false
 LAST_SEND_DIR = Path.home() / ".claude" / "proxy_last_send"
 
 
-def _publish_last_send(tokens: int, session_id: str | None) -> None:
+def _publish_last_send(tokens: int, session_id: Optional[str]) -> None:
     """Write <tokens>\\t<unix_ts>\\n to per-session TSV. Never raises.
 
     No session_id → skip the write (don't fall back to a global file; that
@@ -243,7 +244,7 @@ def vlog(msg: str) -> None:
         print(f"[{_ts()} KST] [proxy] {msg}", flush=True)
 
 
-def short_auth(auth: str | None) -> str:
+def short_auth(auth: Optional[str]) -> str:
     if not auth:
         return "<none>"
     return auth[:20] + "...<redacted>"
@@ -438,7 +439,7 @@ def _group_preview(group: list, width: int = 30) -> str:
     return "<no-user-msg>"
 
 
-def session_key_for_messages(messages: list) -> str | None:
+def session_key_for_messages(messages: list) -> Optional[str]:
     """SHA-256 (16 hex chars) of the first real user message's cleaned text.
 
     Stable within a conversation — the first user message doesn't change until
@@ -623,7 +624,7 @@ def _probe_dump_once(body_bytes: bytes) -> None:
 
 async def count_tokens_via_anthropic(
     body_bytes: bytes, request_headers: dict
-) -> int | None:
+) -> Optional[int]:
     """Ask Anthropic exactly how many tokens this /v1/messages body has.
 
     Returns the integer input_tokens count, or None on any failure
@@ -810,7 +811,7 @@ async def trim_to_sliding_window(
     keep_target_tokens: int,
     request_headers: dict,
     prior_anchor: int = 0,
-) -> tuple[bytes, dict | None]:
+) -> tuple[bytes, Optional[dict]]:
     """Slice the kept window down to keep_target_tokens when over trigger.
 
     Semantics (post-2026-05-22 revision):
@@ -1055,7 +1056,7 @@ async def proxy(request: Request, full_path: str):
     # Real token count we'll forward — populated by slow path from
     # count_tokens, or estimated from body size for fast path. Used by
     # _publish_last_send for the statusline.
-    actual_tokens_sent: int | None = None
+    actual_tokens_sent: Optional[int] = None
     if is_messages and body_size >= FAST_PATH_THRESHOLD:
         # One-shot probe: capture the next slow-path /v1/messages body for
         # offline inspection of cache_control usage. Fires once per process.
@@ -1065,7 +1066,7 @@ async def proxy(request: Request, full_path: str):
         # Look up this session's sliding-window anchor (if any) before trimming.
         # Session key = hash of first real user message text. Stable until
         # /compact or /clear, at which point a new key is correct.
-        session_key: str | None = None
+        session_key: Optional[str] = None
         prior_anchor = 0
         try:
             body_obj = json.loads(body.decode("utf-8"))
@@ -1145,7 +1146,7 @@ async def proxy(request: Request, full_path: str):
             # Fast path or slow-path no-op: use crude bytes/4 estimate.
             # Fast path bodies are always small, so this is fine for the bar.
             actual_tokens_sent = body_size // 4
-        _cc_session_id: str | None = None
+        _cc_session_id: Optional[str] = None
         for _k, _v in request.headers.items():
             if _k.lower() == "x-claude-code-session-id":
                 _cc_session_id = _v

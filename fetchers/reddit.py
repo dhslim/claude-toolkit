@@ -5,11 +5,10 @@ structured JSON. No auth needed for public subs. Walks the comment tree
 and flattens top-N comments by score.
 """
 
-from __future__ import annotations  # PEP 604 `X | None` hints on the 3.9 venv
-
 import json
 import urllib.parse
 import urllib.request
+from typing import Optional
 
 
 _HEADERS = {
@@ -115,7 +114,7 @@ def fetch(url: str, **_) -> dict:
     }
 
 
-def _epoch_to_iso(epoch) -> str | None:
+def _epoch_to_iso(epoch) -> Optional[str]:
     if not epoch:
         return None
     try:
