@@ -14,8 +14,10 @@ Universal content digest. One command, any supported platform. The script dispat
 Run this **as a background task** (`run_in_background`) — fetches can take 5–15 seconds depending on the platform. The user expects to keep typing while it runs; present the summary when it completes.
 
 ```
-{{VENV_PYTHON}} {{SCRIPT_DIR}}/digest.py $ARGUMENTS
+( set -f; {{VENV_PYTHON}} {{SCRIPT_DIR}}/digest.py $ARGUMENTS )
 ```
+
+`set -f` (inside a subshell, so it doesn't leak) disables shell globbing for this one call — without it, zsh tries to glob-expand the `?` in a YouTube URL (`watch?v=…`) and aborts with "no matches found" before the script ever runs.
 
 **IMPORTANT**: The paths above are placeholders. During install, replace `{{VENV_PYTHON}}` and `{{SCRIPT_DIR}}` with the absolute paths to this repo's venv python and script directory.
 

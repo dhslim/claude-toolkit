@@ -35,6 +35,11 @@ def _vtt_to_text(vtt_path: Path) -> str:
     return "\n".join(lines)
 
 
+# YouTube gates caption tracks behind a PO token on its default (web/tv) clients;
+# the android/ios clients still expose them, so prefer those for subtitle fetching.
+_CLIENT_ARGS = {"extractor_args": {"youtube": {"player_client": ["android", "ios", "web"]}}}
+
+
 def fetch(url: str, lang: str = "en,ko", **_) -> dict:
     langs = [x.strip() for x in lang.split(",") if x.strip()]
     notes: list[str] = []
@@ -42,7 +47,7 @@ def fetch(url: str, lang: str = "en,ko", **_) -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         outtmpl = str(Path(tmp) / "%(id)s.%(ext)s")
         # Pass 1: metadata only, find what subtitle langs actually exist
-        probe_opts = {"quiet": True, "no_warnings": True, "skip_download": True}
+        probe_opts = {"quiet": True, "no_warnings": True, "skip_download": True, **_CLIENT_ARGS}
         try:
             with yt_dlp.YoutubeDL(probe_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
@@ -72,6 +77,7 @@ def fetch(url: str, lang: str = "en,ko", **_) -> dict:
                 "writesubtitles": True, "writeautomaticsub": True,
                 "subtitleslangs": wanted, "subtitlesformat": "vtt",
                 "outtmpl": outtmpl, "ignoreerrors": True, "noprogress": True,
+                **_CLIENT_ARGS,
             }
             try:
                 with yt_dlp.YoutubeDL(dl_opts) as ydl:
