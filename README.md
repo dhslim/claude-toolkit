@@ -29,7 +29,7 @@ claude-toolkit/
 ├── hook_strip_images.py   # SessionEnd hook — strips images from session JSONL after sync
 ├── strip_session_images.py # Worker that strips images in-place (run by hook_strip_images.py)
 ├── _sync_runner.py        # Detached child runner spawned by hook_sync.py
-├── mongo_recent.py        # Query recent activity across all machines (/mongo skill)
+├── mongo_recent.py        # Query recent activity across all machines (/mgo skill)
 ├── session_transplant.py  # Clone a session JSONL into a different cwd (/transplant skill)
 ├── digest.py              # URL → platform fetcher → uniform text (/digest skill)
 ├── fetchers/              # Per-platform fetchers (youtube, instagram, threads, reddit, generic)
@@ -146,21 +146,21 @@ alias cread='claude -c --fork-session'   # fork-continue latest session (for rea
 - Even session coverage — 200K char budget split equally so no single session dominates
 - Answer randomization — `quiz_save.py` shuffles choice order to eliminate LLM position bias
 
-## `/mongo` Skill — Recent Activity Viewer
+## `/mgo` Skill — Recent Activity Viewer
 
 Custom Claude Code slash command to query recent activity across all machines.
 
 ```
-/mongo 10      # last 10 minutes (default unit)
-/mongo 2h      # last 2 hours
-/mongo 1d      # last 1 day
+/mgo 10      # last 10 minutes (default unit)
+/mgo 2h      # last 2 hours
+/mgo 1d      # last 1 day
 ```
 
 - Always runs as a background task — type your follow-up prompt immediately
 - Queries MongoDB for sessions with recent `last_synced_at`, then filters messages by timestamp
 - Returns data across all devices (Mac, Windows, GPU servers, SSH sessions)
 - Claude summarizes the results: projects, topics, decisions, code changes
-- Skill file: `~/.claude/skills/mongo/SKILL.md`
+- Skill file: `~/.claude/skills/mgo/SKILL.md`
 - Query script: `mongo_recent.py`
 
 ## `/transplant` Skill — Session Cloner

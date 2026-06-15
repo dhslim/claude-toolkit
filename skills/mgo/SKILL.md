@@ -1,5 +1,5 @@
 ---
-name: mongo
+name: mgo
 description: Query recent Claude Code activity across all machines from MongoDB
 disable-model-invocation: true
 argument-hint: <duration> (e.g. 10, 30m, 2h, 1d — default unit is minutes)
