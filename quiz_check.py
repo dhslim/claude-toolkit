@@ -86,21 +86,21 @@ Steps:
 1. Launch a BACKGROUND agent to handle steps 2-4 below. Greet the user and tell them the quiz is being prepared while they can share what they want to work on.
 2. (In background agent) Run: {VENV_PYTHON} {SCRIPT_DIR}/quiz_data.py
    This returns yesterday's conversation summaries from MongoDB.
-3. (In background agent) Generate exactly 10 multiple-choice questions (4 choices each) based on that data.
+3. (In background agent) Generate exactly 5 multiple-choice questions (4 choices each) based on that data.
    Focus on: concepts discussed, code patterns used, technical decisions made, bugs fixed.
 4. (In background agent) IMMEDIATELY save the quiz to MongoDB by piping JSON to stdin:
    echo '{{"questions":[{{"q":"...","choices":["A)...","B)...","C)...","D)..."],"answer":"B"}},...]}}'  | {VENV_PYTHON} {SCRIPT_DIR}/quiz_save.py
    The JSON must have a "questions" array where each item has "q", "choices", and "answer" fields.
    Multiple quizzes per day are allowed — each save creates a new document, never overwrites.
    Return the full list of questions and answers in the agent result.
-5. When the background agent completes, present ALL 10 questions at once in a numbered list.
+5. When the background agent completes, present ALL 5 questions at once in a numbered list.
    Always include today's date in the title, e.g.: "## Daily Quiz - 2026-03-30"
    This prevents confusion with leftover quizzes from earlier in a long session.
    Use compact one-line format for choices, e.g.:
    **1.** Question text?
    A) Option 1 · B) Option 2 · C) Option 3 · D) Option 4
 6. Wait for the user to answer.
-   When showing an example answer format, use a generic pattern like "A B C D A B C D A B".
+   When showing an example answer format, use a generic pattern like "A B C D A".
    NEVER construct the example from the actual answer key — it leaks the correct answers.
 7. Grade by piping the user's answers as JSON to stdin:
    echo '{{"quiz_id": "<_id from the saved quiz>", "answers": ["B", "C", "A", ...]}}' | {VENV_PYTHON} {SCRIPT_DIR}/quiz_grade.py
