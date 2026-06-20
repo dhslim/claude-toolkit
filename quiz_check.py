@@ -50,12 +50,18 @@ if last_taken == today or last_dismissed == today:
 import sys as _sys
 
 marker = None
+graded = None
 mongo_ok = False
 for attempt in range(2):
     try:
         from _shared import get_db_fast
         client, db = get_db_fast(timeout_ms=2500)
         marker = db['quiz-markers'].find_one({'date': today})
+        # Belt-and-suspenders: a quiz can be GRADED (score written to daily-quizzes)
+        # before / without the marker's taken_at landing — that lag was the false-nag
+        # window. Treat any graded quiz for today as "taken" too, so we never nag
+        # (or regenerate a new quiz) once one has actually been answered today.
+        graded = db['daily-quizzes'].find_one({'date': today, 'score': {'$ne': None}})
         client.close()
         mongo_ok = True
         break
@@ -64,11 +70,13 @@ for attempt in range(2):
               f'{type(e).__name__}: {e}', file=_sys.stderr)
 
 if mongo_ok:
-    if marker and (marker.get('taken_at') or marker.get('dismissed_at')):
-        # Another machine marked it — cache locally so future fires skip MongoDB
-        if marker.get('taken_at'):
+    taken = bool(marker and marker.get('taken_at')) or bool(graded)
+    dismissed = bool(marker and marker.get('dismissed_at'))
+    if taken or dismissed:
+        # Already taken/graded/dismissed today — cache locally so future fires skip MongoDB
+        if taken:
             TAKEN_FILE.write_text(today, encoding='utf-8')
-        if marker.get('dismissed_at'):
+        if dismissed:
             DISMISSED_FILE.write_text(today, encoding='utf-8')
         raise SystemExit(0)
     # Reachable and confirms genuinely pending — fall through to show the quiz
