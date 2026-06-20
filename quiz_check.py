@@ -52,10 +52,11 @@ import sys as _sys
 marker = None
 graded = None
 pending_quiz = None
+yesterday_count = 0
 mongo_ok = False
 for attempt in range(2):
     try:
-        from _shared import get_db_fast
+        from _shared import get_db_fast, yesterday_kst_bounds_utc, count_quiz_messages
         client, db = get_db_fast(timeout_ms=2500)
         marker = db['quiz-markers'].find_one({'date': today})
         # Belt-and-suspenders: a quiz can be GRADED (score written to daily-quizzes)
@@ -68,6 +69,9 @@ for attempt in range(2):
         # every session/machine converges on the same quiz.
         pending_quiz = db['daily-quizzes'].find_one(
             {'date': today, 'score': None}, sort=[('created_at', 1)])
+        # Empty-day detection: did yesterday have any quiz-worthy activity at all?
+        _ys, _ye = yesterday_kst_bounds_utc()
+        yesterday_count = count_quiz_messages(db, _ys, _ye)
         client.close()
         mongo_ok = True
         break
@@ -119,6 +123,18 @@ Questions:
     instructions_file = SCRIPT_DIR / 'quiz-instructions-active.txt'
     instructions_file.write_text(instructions, encoding='utf-8')
     reason = f"Daily quiz pending. Read {instructions_file} and follow the instructions."
+    print(json.dumps({"decision": "block", "reason": reason}))
+    raise SystemExit(0)
+
+# Empty-day auto-dismiss: if yesterday had no quiz-worthy activity, there is
+# nothing to quiz on. Self-dismiss locally (every machine detects the same empty
+# day independently, so a local marker is enough) and notify the user once,
+# rather than generating an empty quiz or nagging all day.
+if not yesterday_count:
+    DISMISSED_FILE.write_text(today, encoding='utf-8')
+    reason = ("No Claude Code activity yesterday — nothing to quiz on, so today's "
+              "quiz is auto-dismissed. Briefly tell the user there was no activity "
+              "yesterday and therefore no quiz today, then carry on with their work.")
     print(json.dumps({"decision": "block", "reason": reason}))
     raise SystemExit(0)
 

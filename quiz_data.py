@@ -11,28 +11,21 @@ does the work, not the client.
 
 import io
 import sys
-from datetime import timedelta, timezone
 
 # Ensure stdout is UTF-8 on Windows
 if sys.stdout.encoding != 'utf-8':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
-from _shared import get_db, now_kst
+from _shared import get_db, yesterday_kst_bounds_utc
 
 MAX_CHARS = 200000      # total output budget
 MAX_MSG_CHARS = 1000    # per-message truncation
 
 
 def main():
-    now = now_kst()
-    yesterday = now - timedelta(days=1)
-    start = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
-    end = start + timedelta(days=1)  # exclusive upper bound = start of today (KST)
-
-    # Match against the per-message UTC `timestamp` (ISO 8601 strings, which sort
-    # lexicographically). Half-open KST day window [start, end) converted to UTC.
-    start_utc = start.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
-    end_utc = end.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
+    # Half-open KST day window [yesterday 00:00, today 00:00) as UTC strings,
+    # matched against the per-message UTC `timestamp` (ISO-8601, sorts lexically).
+    start_utc, end_utc = yesterday_kst_bounds_utc()
 
     client, db = get_db()
     try:

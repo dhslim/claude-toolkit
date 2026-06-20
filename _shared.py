@@ -93,3 +93,34 @@ def with_retry(fn, max_retries=3):
             if attempt == max_retries:
                 raise
             time.sleep(2 ** (attempt - 1))  # 1s, 2s, 4s
+
+
+def yesterday_kst_bounds_utc():
+    """Return (start_utc, end_utc) ISO-8601 strings for yesterday's KST calendar
+    day as a half-open window [start, end).
+
+    The single definition of "yesterday" shared by the quiz scripts. Boundaries
+    are converted to UTC because message `timestamp` fields are stored in UTC
+    (ISO-8601 strings, which sort lexicographically).
+    """
+    start = (now_kst() - timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0)
+    end = start + timedelta(days=1)
+    fmt = '%Y-%m-%dT%H:%M:%S'
+    return (start.astimezone(timezone.utc).strftime(fmt),
+            end.astimezone(timezone.utc).strftime(fmt))
+
+
+def count_quiz_messages(db, start_utc, end_utc):
+    """Count user/assistant messages whose timestamp is in [start_utc, end_utc),
+    across all sessions, entirely server-side. Used to decide whether a day had
+    any quiz-worthy activity (0 => nothing to quiz on)."""
+    pipeline = [
+        {'$match': {'messages.timestamp': {'$gte': start_utc, '$lt': end_utc}}},
+        {'$unwind': '$messages'},
+        {'$match': {'messages.timestamp': {'$gte': start_utc, '$lt': end_utc},
+                    'messages.role': {'$in': ['user', 'assistant']}}},
+        {'$count': 'n'},
+    ]
+    res = list(db['sessions'].aggregate(pipeline))
+    return res[0]['n'] if res else 0
