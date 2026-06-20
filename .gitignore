@@ -35,3 +35,9 @@ current_context.html
 
 # /digest test artifacts
 digest_test_image.jpg
+
+# investigation scratch (do not commit)
+_clawd_asar_dump/
+_win_inventory.csv
+_win_inventory_raw.txt
+quiz_tmp.json
