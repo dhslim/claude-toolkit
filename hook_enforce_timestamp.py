@@ -34,9 +34,15 @@ REASON = (
 )
 
 
-def last_assistant_text(transcript_path):
-    """Return the concatenated text of the final assistant message, or ''."""
-    text = ""
+def recent_assistant_last_lines(transcript_path, n=3):
+    """Last non-empty line of each of the last `n` assistant messages that had text.
+
+    We look at the last few — not just the very last — because on tool-heavy turns
+    the final stamped message can be read a beat before it's flushed, landing the
+    check on an intermediate tool-preamble or an unstamped stop-hook continuation
+    and false-blocking. As long as one recent message carries the stamp, we're fine.
+    """
+    last_lines = []
     try:
         with open(transcript_path, "r", encoding="utf-8") as f:
             for line in f:
@@ -49,24 +55,21 @@ def last_assistant_text(transcript_path):
                     continue
                 if entry.get("type") != "assistant":
                     continue
-                msg = entry.get("message", {})
-                content = msg.get("content", [])
+                content = entry.get("message", {}).get("content", [])
                 if isinstance(content, str):
-                    text = content
-                    continue
-                parts = [
-                    b.get("text", "")
-                    for b in content
-                    if isinstance(b, dict) and b.get("type") == "text"
-                ]
-                joined = "".join(parts).strip()
-                # Only overwrite when this assistant turn actually had text
-                # (tool-only turns have no text block — skip them).
+                    joined = content.strip()
+                else:
+                    joined = "".join(
+                        b.get("text", "")
+                        for b in content
+                        if isinstance(b, dict) and b.get("type") == "text"
+                    ).strip()
+                # Skip tool-only turns (no text block).
                 if joined:
-                    text = joined
+                    last_lines.append(joined.splitlines()[-1].strip())
     except FileNotFoundError:
-        return ""
-    return text
+        return []
+    return last_lines[-n:]
 
 
 def main():
@@ -83,14 +86,14 @@ def main():
     if not transcript_path:
         return  # nothing to inspect → fail open
 
-    text = last_assistant_text(transcript_path)
-    if not text:
+    recent = recent_assistant_last_lines(transcript_path, n=3)
+    if not recent:
         return  # no assistant text this turn (e.g. pure tool turn) → allow
 
-    # Check only the final non-empty line — the stamp must be the LAST line.
-    last_line = text.splitlines()[-1].strip() if text.splitlines() else ""
-    if STAMP_RE.search(last_line):
-        return  # stamp present → allow stop
+    # Allow if ANY of the last few assistant messages ended with a valid stamp;
+    # only block on a genuine, sustained miss (none of them stamped).
+    if any(STAMP_RE.search(line) for line in recent):
+        return
 
     print(json.dumps({"decision": "block", "reason": REASON}))
 
