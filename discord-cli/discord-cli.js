@@ -23,6 +23,13 @@
 const { REST } = require("@discordjs/rest");
 const { Routes } = require("discord-api-types/v10");
 
+// Load DISCORD_TOKEN from the repo's .env (one level up) if it isn't already in
+// the environment, so `node discord-cli.js` works without a manual export.
+// dotenv does NOT override vars already set, so an exported token still wins.
+try {
+  require("dotenv").config({ path: require("path").join(__dirname, "..", ".env"), quiet: true });
+} catch (_) { /* dotenv optional — env may already provide DISCORD_TOKEN */ }
+
 const token = process.env.DISCORD_TOKEN;
 if (!token) {
   console.error("Error: DISCORD_TOKEN environment variable is not set.");
