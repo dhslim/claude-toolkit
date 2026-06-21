@@ -1,0 +1,13 @@
+{
+  "name": "discord-cli",
+  "version": "0.1.0",
+  "description": "Lightweight read+send wrapper around the Discord REST API (@discordjs/rest)",
+  "private": true,
+  "bin": {
+    "discord-cli": "discord-cli.js"
+  },
+  "dependencies": {
+    "@discordjs/rest": "^2.4.0",
+    "discord-api-types": "^0.37.100"
+  }
+}
