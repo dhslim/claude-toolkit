@@ -34,15 +34,19 @@ REASON = (
 )
 
 
-def recent_assistant_last_lines(transcript_path, n=3):
-    """Last non-empty line of each of the last `n` assistant messages that had text.
+def last_assistant_message(transcript_path):
+    """Inspect the final assistant message. Returns (has_tool_use, last_text_line).
 
-    We look at the last few — not just the very last — because on tool-heavy turns
-    the final stamped message can be read a beat before it's flushed, landing the
-    check on an intermediate tool-preamble or an unstamped stop-hook continuation
-    and false-blocking. As long as one recent message carries the stamp, we're fine.
+    (None, "") if there is no assistant message / it can't be read.
+
+    has_tool_use=True means the last assistant message ended on a tool call — i.e.
+    it's an intermediate tool step, OR the genuine text-final reply simply hasn't
+    been flushed to the transcript yet. Either way it is NOT a finished text
+    response, so the stamp rule does not apply to it. We only judge a pure-text
+    final message. No counting, no window — the message's own shape tells us
+    whether it's the kind of message that must carry a stamp.
     """
-    last_lines = []
+    last = None
     try:
         with open(transcript_path, "r", encoding="utf-8") as f:
             for line in f:
@@ -53,23 +57,26 @@ def recent_assistant_last_lines(transcript_path, n=3):
                     entry = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if entry.get("type") != "assistant":
-                    continue
-                content = entry.get("message", {}).get("content", [])
-                if isinstance(content, str):
-                    joined = content.strip()
-                else:
-                    joined = "".join(
-                        b.get("text", "")
-                        for b in content
-                        if isinstance(b, dict) and b.get("type") == "text"
-                    ).strip()
-                # Skip tool-only turns (no text block).
-                if joined:
-                    last_lines.append(joined.splitlines()[-1].strip())
+                if entry.get("type") == "assistant":
+                    last = entry
     except FileNotFoundError:
-        return []
-    return last_lines[-n:]
+        return None, ""
+    if last is None:
+        return None, ""
+    content = last.get("message", {}).get("content", [])
+    if isinstance(content, str):
+        text, has_tool = content.strip(), False
+    else:
+        has_tool = any(
+            isinstance(b, dict) and b.get("type") == "tool_use" for b in content
+        )
+        text = "".join(
+            b.get("text", "")
+            for b in content
+            if isinstance(b, dict) and b.get("type") == "text"
+        ).strip()
+    last_line = text.splitlines()[-1].strip() if text else ""
+    return has_tool, last_line
 
 
 def main():
@@ -86,14 +93,15 @@ def main():
     if not transcript_path:
         return  # nothing to inspect → fail open
 
-    recent = recent_assistant_last_lines(transcript_path, n=3)
-    if not recent:
-        return  # no assistant text this turn (e.g. pure tool turn) → allow
-
-    # Allow if ANY of the last few assistant messages ended with a valid stamp;
-    # only block on a genuine, sustained miss (none of them stamped).
-    if any(STAMP_RE.search(line) for line in recent):
-        return
+    has_tool, last_line = last_assistant_message(transcript_path)
+    if has_tool is None:
+        return  # no assistant message to inspect → allow
+    if has_tool:
+        return  # ended on a tool call (intermediate, or reply not flushed yet) → allow
+    if not last_line:
+        return  # text-final but empty → nothing to enforce → allow
+    if STAMP_RE.search(last_line):
+        return  # finished text reply is stamped → allow
 
     print(json.dumps({"decision": "block", "reason": REASON}))
 
