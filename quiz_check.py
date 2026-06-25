@@ -153,6 +153,7 @@ Steps:
 4. (In background agent) IMMEDIATELY save the quiz to MongoDB by piping JSON to stdin:
    echo '{{"questions":[{{"q":"...","choices":["A)...","B)...","C)...","D)..."],"answer":"B"}},...]}}'  | {VENV_PYTHON} {SCRIPT_DIR}/quiz_save.py
    The JSON must have a "questions" array where each item has "q", "choices", and "answer" fields.
+   quiz_save.py ENFORCES quality: it rejects (exit code 2, saves nothing) if you send fewer than 5 questions or any malformed item; if you send more than 5 it keeps the first 5 and prints a warning. Aim for exactly 5 well-formed questions; if rejected, regenerate and re-pipe — do not work around it.
    Multiple quizzes per day are allowed — each save creates a new document, never overwrites.
    Return the full list of questions and answers in the agent result.
 5. When the background agent completes, present ALL 5 questions at once in a numbered list.
