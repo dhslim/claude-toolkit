@@ -177,6 +177,110 @@ def cmd_stats(args):
     print(f"conversations: {nc}\nmessages: {nm}\ndate range: {lo} .. {hi}")
 
 
+# ---------- phase 2: semantic search (pgvector + local multilingual embeddings) ----------
+EMBED_MODEL = 'BAAI/bge-m3'   # multilingual (KO+EN), 1024-dim, runs local on GPU
+EMBED_DIM = 1024
+_model = None
+
+# DDL is idempotent; runs lazily the first time we embed (keeps full-text phase
+# free of any pgvector dependency).
+VEC_DDL = [
+    "CREATE EXTENSION IF NOT EXISTS vector",
+    f"ALTER TABLE messages ADD COLUMN IF NOT EXISTS embedding vector({EMBED_DIM})",
+    "CREATE INDEX IF NOT EXISTS idx_messages_embedding "
+    "ON messages USING hnsw (embedding vector_cosine_ops)",
+]
+
+
+def _load_model():
+    global _model
+    if _model is None:
+        from sentence_transformers import SentenceTransformer
+        import torch
+        dev = 'cuda' if torch.cuda.is_available() else 'cpu'
+        print(f"loading {EMBED_MODEL} on {dev} ...", file=sys.stderr)
+        # Force safetensors: torch 2.5.1 blocks torch.load of .bin weights
+        # (CVE-2025-32434). bge-m3 ships model.safetensors, so this sidesteps it.
+        _model = SentenceTransformer(EMBED_MODEL, device=dev,
+                                     model_kwargs={'use_safetensors': True})
+    return _model
+
+
+def _ensure_vector(conn):
+    with conn.cursor() as cur:
+        for stmt in VEC_DDL:
+            cur.execute(stmt)
+    conn.commit()
+    from pgvector.psycopg import register_vector
+    register_vector(conn)
+
+
+def cmd_embed(args):
+    import numpy as np
+    # 1. Short connection: run DDL + fetch the rows, then RELEASE it. We must not
+    #    hold a Neon connection open across the minutes-long GPU embed — it goes
+    #    idle and the pooler drops the SSL connection.
+    with _connect() as conn:
+        _ensure_vector(conn)
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, body FROM messages "
+                        "WHERE embedding IS NULL AND body <> '' ORDER BY id")
+            rows = cur.fetchall()
+    if not rows:
+        print("nothing to embed (all messages already have embeddings).")
+        return
+
+    # 2. Embed on the GPU with NO DB connection held.
+    print(f"loading model + embedding {len(rows)} messages on GPU ...")
+    model = _load_model()
+    ids = [r[0] for r in rows]
+    vecs = model.encode([r[1] for r in rows], batch_size=args.batch,
+                        normalize_embeddings=True, show_progress_bar=True)
+    # Safety: persist vectors so a store failure never wastes the GPU work.
+    np.savez(SCRIPT_DIR / '.embed_cache.npz', ids=np.array(ids), vecs=vecs)
+
+    # 3. Fresh connection: store in committed chunks (robust + shows progress).
+    with _connect() as conn:
+        from pgvector.psycopg import register_vector
+        register_vector(conn)
+        CHUNK = 1000
+        with conn.cursor() as cur:
+            for i in range(0, len(ids), CHUNK):
+                end = min(i + CHUNK, len(ids))
+                cur.executemany("UPDATE messages SET embedding = %s WHERE id = %s",
+                               [(vecs[j], ids[j]) for j in range(i, end)])
+                conn.commit()
+                print(f"  stored {end}/{len(ids)}")
+    print(f"embedded {len(ids)} messages.")
+
+
+def cmd_semantic(args):
+    model = _load_model()
+    qvec = model.encode([args.query], normalize_embeddings=True)[0]
+    with _connect() as conn:
+        from pgvector.psycopg import register_vector
+        register_vector(conn)
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT c.title, m.role, m.created_at, m.conv_uuid,
+                          left(m.body, 240) AS snippet,
+                          m.embedding <=> %s AS dist
+                   FROM messages m JOIN conversations c ON c.conv_uuid = m.conv_uuid
+                   WHERE m.embedding IS NOT NULL
+                   ORDER BY m.embedding <=> %s
+                   LIMIT %s""",
+                (qvec, qvec, args.limit))
+            rows = cur.fetchall()
+    if not rows:
+        print("no embeddings yet — run `embed` first.")
+        return
+    print(f"top {len(rows)} semantic matches for {args.query!r}:")
+    for title, role, created, cu, snippet, dist in rows:
+        when = str(created)[:16] if created else '?'
+        print(f"\n[{when}] {title or '(untitled)'}  ({role})  conv={cu[:8]}  sim={1 - float(dist):.3f}")
+        print(f"   {' '.join((snippet or '').split())}")
+
+
 def main():
     p = argparse.ArgumentParser(description="Archive + search your claude.ai chat history in Neon Postgres.")
     sub = p.add_subparsers(dest='cmd', required=True)
@@ -189,8 +293,14 @@ def main():
     ps.add_argument('--after', help='YYYY-MM-DD')
     ps.add_argument('--before', help='YYYY-MM-DD')
     sub.add_parser('stats', help='row counts + date range')
+    pe = sub.add_parser('embed', help='generate vector embeddings (pgvector + GPU)')
+    pe.add_argument('--batch', type=int, default=32)
+    psm = sub.add_parser('semantic', help='semantic (meaning-based) search')
+    psm.add_argument('query')
+    psm.add_argument('--limit', type=int, default=10)
     args = p.parse_args()
-    {'init-db': cmd_init, 'import': cmd_import, 'search': cmd_search, 'stats': cmd_stats}[args.cmd](args)
+    {'init-db': cmd_init, 'import': cmd_import, 'search': cmd_search, 'stats': cmd_stats,
+     'embed': cmd_embed, 'semantic': cmd_semantic}[args.cmd](args)
 
 
 if __name__ == '__main__':

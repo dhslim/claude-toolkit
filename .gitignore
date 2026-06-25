@@ -45,3 +45,4 @@ conversations.json
 users.json
 projects.json
 *-export*.json
+.embed_cache.npz
