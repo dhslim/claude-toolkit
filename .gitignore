@@ -41,3 +41,7 @@ _clawd_asar_dump/
 _win_inventory.csv
 _win_inventory_raw.txt
 quiz_tmp.json
+conversations.json
+users.json
+projects.json
+*-export*.json
