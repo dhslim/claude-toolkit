@@ -111,11 +111,23 @@ def main():
     ]
     sessions = list(db['sessions'].aggregate(pipeline))
 
+    # Instrumentation: split the funnel so a future "0 results" is self-diagnosing.
+    #   matched_by_last_synced_at = sessions whose last_synced_at is in-window ($match)
+    #   dropped_no_inwindow_msgs  = of those, how many carried ZERO in-window messages
+    #                               after the server-side timestamp $filter (synced
+    #                               recently but nothing fresh, OR message timestamps
+    #                               failed $dateFromString parsing).
+    # A future 0 then tells us instantly: matched==0 -> $match/clock/sync/read issue;
+    # matched>0 but all dropped -> message-timestamp filter issue.
+    matched_by_last_synced_at = len(sessions)
+    dropped_no_inwindow_msgs = 0
+
     results = []
     for session in sessions:
         # Server already filtered to in-window user/assistant messages.
         recent_msgs = session.get('messages') or []
         if not recent_msgs:
+            dropped_no_inwindow_msgs += 1
             continue
 
         # Extract user and assistant messages (same logic as v1)
@@ -149,6 +161,8 @@ def main():
             'duration': sys.argv[1],
             'cutoff_utc': cutoff.isoformat(),
             'sessions_found': len(results),
+            'matched_by_last_synced_at': matched_by_last_synced_at,
+            'dropped_no_inwindow_msgs': dropped_no_inwindow_msgs,
         },
         'sessions': results,
     }, indent=2, default=str))
