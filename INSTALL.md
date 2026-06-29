@@ -71,7 +71,7 @@ The settings.json already references this path via `~/.claude/statusline.sh`.
 
 ### 7. Update global CLAUDE.md
 
-Read ~/.claude/CLAUDE.md (create it if it doesn't exist). Ensure BOTH blocks below are present — for each, if its section is missing append it; if it already exists, update it to match. Preserve all other existing content.
+Read ~/.claude/CLAUDE.md (create it if it doesn't exist). Ensure ALL blocks below are present — for each, if its section is missing append it; if it already exists, update it to match. Preserve all other existing content.
 
 Use the absolute path to this repo's directory and the venv python path (platform-appropriate).
 
@@ -94,6 +94,14 @@ This second block pairs with the `hook_inject_time.py` UserPromptSubmit hook fro
 - End EVERY response with that injected timestamp on its own final line, wrapped in single backticks so it renders as inline code (distinct color/font) in the transcript — like: `2026-06-07 09:10:09 KST`
 - Use the injected value verbatim; never guess the wall-clock time. If no `<current-time>` was injected this turn, omit the stamp rather than inventing one.
 - No emoji anywhere in responses — terminals here use cp949/utf-8 and emoji corrupt the output.
+```
+
+This third block is a standalone preference (no hook dependency).
+
+```
+## File References
+- Always give the full, complete absolute path for every file or directory you mention — never abbreviate, truncate, or collapse any part with `...`. Write the whole path from the drive root (e.g. `C:\Users\user\Desktop\THINGS\desktop\admin stuff\file.docx`) so the user can ctrl+click to open it.
+- Applies everywhere: prose, summaries, tables, code blocks, and bullet lists.
 ```
 
 ### 8. Add shell aliases
