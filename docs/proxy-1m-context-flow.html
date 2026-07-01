@@ -188,42 +188,41 @@
   <tr><td><span class="pill">anthropic-beta</span></td><td>header</td><td><code>context-1m-2025-08-07</code> is what actually <b>flips the window from 200k → 1M</b>. No header = 200k, period.</td></tr>
 </table>
 
-<h2>4 · The <code>[1m]</code> story — the bug your proxy fixes</h2>
-<p class="lead">Here's the messy part. When you pick <b>"Opus 4.8 (1M context)"</b> in Claude Code, CC <i>doesn't</i> set that clean header above. Instead it does something hacky:</p>
+<h2>4 · The <code>[1m]</code> story — two request types, two mechanisms</h2>
+<p class="lead">The subtle part (and I'll be honest — I got this wrong twice before <b>capturing the actual packets off the wire</b> settled it). Claude Code asks for the 1M window <b>two different ways</b>, depending on the request:</p>
 
-<div class="ba">
-  <div class="half bad">
-    <h4>✗ What Claude Code sends</h4>
-    <pre>{
-  <span class="k">"model"</span>: <span class="del">"claude-opus-4-8[1m]"</span>
-}
-<span class="c"># the "[1m]" is glued onto the
-# model NAME — there's no such
-# model id at Anthropic.</span></pre>
-  </div>
-  <div class="half ok">
-    <h4>✓ What the proxy rewrites it to</h4>
-    <pre><span class="k">anthropic-beta</span>: <span class="add">context-1m-2025-08-07</span>
-{
-  <span class="k">"model"</span>: <span class="add">"claude-opus-4-8"</span>
-}
-<span class="c"># [1m] stripped off the model,
-# moved to the proper header.</span></pre>
-  </div>
-</div>
+<table>
+  <tr><th>Request</th><th>What CC sends as <code>model</code></th><th>How it signals 1M</th><th>Proxy</th></tr>
+  <tr>
+    <td><b>Real messages</b><br><span class="small">your actual prompts — full system + tools</span></td>
+    <td><span class="add">claude-opus-4-8</span> <span class="small">(plain)</span></td>
+    <td><code>context-1m-2025-08-07</code> in the <b>anthropic-beta header</b> ✓</td>
+    <td>passes through <b>untouched</b></td>
+  </tr>
+  <tr>
+    <td><b>Session-start quota probe</b><br><span class="small">a ~317-byte ping: 1 message, no system/tools</span></td>
+    <td><span class="del">claude-opus-4-8[1m]</span> <span class="small">(suffix — a fake id)</span></td>
+    <td>the <code>[1m]</code> <b>suffix</b></td>
+    <td><b>rewrites it</b>: strips <code>[1m]</code> → adds the header</td>
+  </tr>
+</table>
+
+<p>So your <b>real messages were already doing it the right way</b> (header) — the proxy leaves them alone. Only the tiny <b>quota probe</b> uses the hacky <code>[1m]</code> suffix, and that's the one thing the proxy fixes.</p>
 
 <div class="box warn">
-<h3 style="margin-top:0">⚠ Why this matters — the 404 trap</h3>
-<p style="margin-bottom:6px">If the proxy <b>weren't</b> there, Anthropic would get <code>model: "claude-opus-4-8[1m]"</code>, not recognize that id, and return <b>404</b>. Claude Code then <b>misreads that 404</b> as <i>"Context limit reached — /clear to continue"</i> on your very first prompt. So your proxy's <code>_normalize_cc_1m_suffix()</code> is what makes 1M usable at all.</p>
+<h3 style="margin-top:0">⚠ Why the probe <i>must</i> be rewritten — the 404 trap</h3>
+<p style="margin-bottom:6px"><code>claude-opus-4-8[1m]</code> isn't a real model id, so Anthropic returns <b>404</b> — and Claude Code <b>misreads that 404</b> as <i>"Context limit reached — /clear to continue."</i> Since the probe fires at <b>session start</b>, that 404 would surface as a broken session on your <b>very first prompt</b>. So <code>_normalize_cc_1m_suffix()</code> exists to keep that one probe alive. Real messages never hit this — they already use the header.</p>
 </div>
 
-<p>The proxy code that does it (<code>claude_proxy.py</code>, lines ~297–325 &amp; 1013–1030):</p>
+<p class="small"><b>Why does CC do this?</b> Two code paths: the main request path correctly translates the internal <code>[1m]</code> label into the header, but the lightweight quota-probe path skips that translation and ships the raw label. A CC inconsistency — the proxy is just the shim that papers over it.</p>
+
+<p>The proxy code (<code>claude_proxy.py</code>, <code>_normalize_cc_1m_suffix</code>) — fires <b>only</b> when a model ends in <code>[1m]</code>, i.e. only on the probe:</p>
 <pre><span class="k">def</span> <span class="m">_normalize_cc_1m_suffix</span>(body, headers):
     model = body.get(<span class="s">"model"</span>, <span class="s">""</span>)
-    <span class="k">if not</span> model.endswith(<span class="s">"[1m]"</span>):
+    <span class="k">if not</span> model.endswith(<span class="s">"[1m]"</span>):     <span class="c"># real messages → skip, pass through</span>
         <span class="k">return</span> <span class="k">False</span>
-    body[<span class="s">"model"</span>] = model[:-<span class="m">4</span>]                       <span class="c"># strip "[1m]"</span>
-    betas.append(<span class="s">"context-1m-2025-08-07"</span>)            <span class="c"># add the real header</span>
+    body[<span class="s">"model"</span>] = model[:-<span class="m">4</span>]         <span class="c"># probe only → strip "[1m]"</span>
+    betas.append(<span class="s">"context-1m-2025-08-07"</span>)  <span class="c"># add header so the id is valid</span>
     headers[<span class="s">"anthropic-beta"</span>] = <span class="s">","</span>.join(betas)
     <span class="k">return</span> <span class="k">True</span></pre>
 
@@ -258,19 +257,19 @@
 </table>
 <p class="small">It measures real size with Anthropic's <code>count_tokens</code> endpoint (a chars/4 estimate does the rough slicing; a count_tokens re-check is the safety net, because the estimate under-counts code-heavy text by up to ~2.8×).</p>
 
-<h2>6 · So why does the model keep "reverting"?</h2>
+<h2>6 · So what about the model "reverting" to 200k?</h2>
 <div class="box amber">
-<p style="margin-top:0">Putting it together:</p>
+<p style="margin-top:0">The honest, capture-checked picture:</p>
 <ol style="margin:0;padding-left:20px;color:#c9d3de">
-  <li>"1M context" isn't a saved <i>setting</i> — it's CC tacking <code>[1m]</code> onto the model string <b>per request</b>.</li>
-  <li>Claude Code <b>doesn't persist that choice</b> (there's no <code>model</code> key in your <code>settings.json</code> or <code>.claude.json</code>). On restart it forgets, and goes back to plain <code>claude-opus-4-8</code> → 200k.</li>
-  <li>The proxy <b>only adds the 1M beta when CC sends <code>[1m]</code></b>. No suffix → no beta → 200k window. The proxy is just faithfully mirroring what CC sent.</li>
+  <li>For <b>real messages</b>, 1M is the <code>context-1m</code> <b>header</b> — and a <b>fresh session already includes it</b> (confirmed on the wire: the captured request carried the header). So a new session <i>is</i> on 1M.</li>
+  <li>The <code>[1m]</code> suffix only rides on the tiny <b>quota probe</b> (which the proxy fixes) — it is <b>not</b> the mechanism for your actual prompts.</li>
+  <li>If you ever genuinely land on 200k, that would mean <b>CC stopped putting <code>context-1m</code> in the header</b> for real messages — a selection/persistence question on CC's side. We didn't reproduce that here, so it stays an <b>open thread</b>, not a confirmed bug.</li>
 </ol>
 </div>
 
-<div class="box good">
-<h3 style="margin-top:0">✓ The robust fix</h3>
-<p>Your proxy <b>already assumes</b> a 1M window (it trims to 400k, which a 200k model would reject outright). So instead of depending on CC's flaky <code>[1m]</code> suffix, make the proxy <b>always</b> inject <code>anthropic-beta: context-1m-2025-08-07</code> on every Opus request. Then 1M is permanently on — <b>you never touch <code>/model</code> again</b>, no matter what the UI says. ~5 lines, in the one place every request already passes through.</p>
+<div class="box">
+<h3 style="margin-top:0">↺ A retraction (kept on purpose)</h3>
+<p style="margin-bottom:0">An earlier draft of this page proposed "make the proxy <b>always</b> inject the <code>context-1m</code> header." <b>Retracted</b> — it was built on the wrong premise that real messages used the <code>[1m]</code> suffix. They don't; they already carry the header, so forcing it would be redundant. Left here as a reminder: <i>capture the bytes before theorizing.</i></p>
 </div>
 
 <h2>Mental model — the one-liner to remember</h2>

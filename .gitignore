@@ -46,3 +46,5 @@ users.json
 projects.json
 *-export*.json
 .embed_cache.npz
+sniff-dump.json
+sniff-dumps/

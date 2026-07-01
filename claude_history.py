@@ -187,8 +187,10 @@ _model = None
 VEC_DDL = [
     "CREATE EXTENSION IF NOT EXISTS vector",
     f"ALTER TABLE messages ADD COLUMN IF NOT EXISTS embedding vector({EMBED_DIM})",
-    "CREATE INDEX IF NOT EXISTS idx_messages_embedding "
-    "ON messages USING hnsw (embedding vector_cosine_ops)",
+    # HNSW index intentionally omitted: at <100k vectors a brute-force cosine scan is
+    # sub-second, while the index (~125 MB + heavy bulk-load write-churn) blew the
+    # free-tier 512 MB cap. Semantic search runs fine via a sequential scan; add the
+    # index back only if this archive grows into the hundreds of thousands of messages.
 ]
 
 
@@ -281,6 +283,173 @@ def cmd_semantic(args):
         print(f"   {' '.join((snippet or '').split())}")
 
 
+# ---------- hybrid: fuse lexical + semantic rankings with Reciprocal Rank Fusion ----------
+def cmd_hybrid(args):
+    """Lexical (full-text) and semantic (vector) each produce a ranked list; RRF fuses
+    them by RANK (score = sum 1/(k+rank)), so messages strong in BOTH float to the top.
+    Pure Postgres — no extra index, no extra service. k=60 is the standard RRF default.
+    The [src] tag shows L (lexical), S (semantic), or LS (both = consensus)."""
+    K = 60
+    pool = max(args.limit * 5, 50)  # rank deeper than the final cut for a good fusion
+    model = _load_model()
+    qvec = model.encode([args.query], normalize_embeddings=True)[0]
+    with _connect() as conn:
+        from pgvector.psycopg import register_vector
+        register_vector(conn)
+        with conn.cursor() as cur:
+            cur.execute("""SELECT m.msg_uuid FROM messages m
+                           WHERE m.body_tsv @@ plainto_tsquery('simple', %s)
+                           ORDER BY ts_rank_cd(m.body_tsv, plainto_tsquery('simple', %s)) DESC,
+                                    m.created_at DESC
+                           LIMIT %s""", (args.query, args.query, pool))
+            lex = [r[0] for r in cur.fetchall()]
+            cur.execute("""SELECT m.msg_uuid FROM messages m
+                           WHERE m.embedding IS NOT NULL
+                           ORDER BY m.embedding <=> %s
+                           LIMIT %s""", (qvec, pool))
+            sem = [r[0] for r in cur.fetchall()]
+            scores = {}
+            for rank, mid in enumerate(lex, 1):
+                scores[mid] = scores.get(mid, 0.0) + 1.0 / (K + rank)
+            for rank, mid in enumerate(sem, 1):
+                scores[mid] = scores.get(mid, 0.0) + 1.0 / (K + rank)
+            top = sorted(scores, key=scores.get, reverse=True)[:args.limit]
+            if not top:
+                print("no matches.")
+                return
+            cur.execute("""SELECT m.msg_uuid, c.title, m.role, m.created_at, m.conv_uuid,
+                                  left(m.body, 240) AS snippet
+                           FROM messages m JOIN conversations c ON c.conv_uuid = m.conv_uuid
+                           WHERE m.msg_uuid = ANY(%s)""", (top,))
+            info = {r[0]: r[1:] for r in cur.fetchall()}
+    lexset, semset = set(lex), set(sem)
+    print(f"top {len(top)} hybrid (RRF) matches for {args.query!r}:")
+    for mid in top:
+        title, role, created, cu, snippet = info[mid]
+        src = ('L' if mid in lexset else '') + ('S' if mid in semset else '')
+        when = str(created)[:16] if created else '?'
+        print(f"\n[{when}] {title or '(untitled)'}  ({role})  conv={str(cu)[:8]}  rrf={scores[mid]:.4f} [{src or '-'}]")
+        print(f"   {' '.join((snippet or '').split())}")
+
+
+# ---------- sync: pull new/updated chats straight from claude.ai (no manual export) ----------
+# claude.ai's web API sits behind Cloudflare, which 403s bare clients — so we send
+# browser-shaped headers. Auth is your sessionKey cookie (CLAUDE_SESSION_KEY in .env).
+# Incremental: list conversations, refetch only those new or whose updated_at advanced,
+# then reuse the same idempotent upsert path the export importer uses.
+CLAUDE_SESSION_KEY = os.environ.get('CLAUDE_SESSION_KEY', '').strip()
+CLAUDE_ORG_UUID = os.environ.get('CLAUDE_ORG_UUID', '').strip()
+_CAI_UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+           '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
+
+
+def _cai_get(path):
+    import urllib.request
+    if not CLAUDE_SESSION_KEY:
+        sys.exit("Error: CLAUDE_SESSION_KEY not set in .env (your claude.ai sessionKey cookie).")
+    req = urllib.request.Request('https://claude.ai' + path, headers={
+        'Cookie': f'sessionKey={CLAUDE_SESSION_KEY}', 'User-Agent': _CAI_UA,
+        'Accept': 'application/json', 'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://claude.ai/'})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return json.load(r)
+
+
+def _cai_org():
+    if CLAUDE_ORG_UUID:
+        return CLAUDE_ORG_UUID
+    orgs = _cai_get('/api/organizations')
+    orgs = orgs if isinstance(orgs, list) else [orgs]
+    if not orgs:
+        sys.exit("No organizations for this session key (is it still valid?).")
+    return orgs[0]['uuid']
+
+
+def _cai_list_conversations(org):
+    """Page the conversation list (metadata incl. updated_at). Safe against an
+    endpoint that ignores ?offset: stops when a page yields nothing new."""
+    import time
+    out, seen, offset, page = [], set(), 0, 100
+    while True:
+        batch = _cai_get(f'/api/organizations/{org}/chat_conversations?limit={page}&offset={offset}')
+        batch = batch if isinstance(batch, list) else batch.get('conversations', [])
+        fresh = [c for c in batch if c.get('uuid') and c['uuid'] not in seen]
+        if not fresh:
+            break
+        for c in fresh:
+            seen.add(c['uuid'])
+        out.extend(fresh)
+        if len(batch) < page:
+            break
+        offset += page
+        time.sleep(0.3)
+    return out
+
+
+def _parse_ts(s):
+    from datetime import datetime
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(str(s).replace('Z', '+00:00'))
+    except ValueError:
+        return None
+
+
+def cmd_sync(args):
+    import time
+    org = _cai_org()
+    print(f"claude.ai org {org}\nlisting conversations ...")
+    remote = _cai_list_conversations(org)
+    print(f"  {len(remote)} conversations on claude.ai")
+    with _connect() as conn, conn.cursor() as cur:
+        cur.execute("SELECT conv_uuid, updated_at FROM conversations")
+        have = {str(u): ts for u, ts in cur.fetchall()}
+    todo = []
+    for c in remote:
+        cu = c.get('uuid')
+        if not cu:
+            continue
+        if cu not in have:
+            todo.append(c)                                    # brand new
+        else:
+            rt, lt = _parse_ts(c.get('updated_at')), have[cu]
+            try:
+                if rt and lt and rt > lt:
+                    todo.append(c)                            # updated since last sync
+            except TypeError:
+                todo.append(c)                                # tz naive/aware mismatch — refetch
+    if args.limit:
+        todo = todo[:args.limit]
+    print(f"  {len(todo)} new/updated to pull")
+    if not todo:
+        print("already up to date.")
+        return
+    conv_rows, msg_rows, ok = [], [], 0
+    for c in todo:
+        cu = c['uuid']
+        try:
+            full = _cai_get(f'/api/organizations/{org}/chat_conversations/{cu}')
+        except Exception as e:
+            print(f"  ! skip {cu[:8]}: {e}")
+            continue
+        cr, mr = _rows_from_conversations([full])
+        conv_rows.extend(cr)
+        msg_rows.extend(mr)
+        ok += 1
+        if ok % 20 == 0:
+            print(f"  fetched {ok}/{len(todo)} ...")
+        time.sleep(args.delay)
+    with _connect() as conn, conn.cursor() as cur:
+        cur.executemany(CONV_UPSERT, conv_rows)
+        cur.executemany(MSG_UPSERT, msg_rows)
+        conn.commit()
+    print(f"synced {len(conv_rows)} conversations, {len(msg_rows)} messages")
+    if getattr(args, 'embed', False):
+        print("embedding new messages ...")
+        cmd_embed(args)
+
+
 def main():
     p = argparse.ArgumentParser(description="Archive + search your claude.ai chat history in Neon Postgres.")
     sub = p.add_subparsers(dest='cmd', required=True)
@@ -298,9 +467,17 @@ def main():
     psm = sub.add_parser('semantic', help='semantic (meaning-based) search')
     psm.add_argument('query')
     psm.add_argument('--limit', type=int, default=10)
+    ph = sub.add_parser('hybrid', help='hybrid search: lexical + semantic fused with RRF')
+    ph.add_argument('query')
+    ph.add_argument('--limit', type=int, default=10)
+    py = sub.add_parser('sync', help='pull new/updated chats straight from claude.ai (no export)')
+    py.add_argument('--limit', type=int, default=0, help='cap conversations fetched this run (0 = all new/updated)')
+    py.add_argument('--delay', type=float, default=0.4, help='seconds between conversation fetches (be polite)')
+    py.add_argument('--embed', action='store_true', help='also embed new messages after syncing')
+    py.add_argument('--batch', type=int, default=32)
     args = p.parse_args()
     {'init-db': cmd_init, 'import': cmd_import, 'search': cmd_search, 'stats': cmd_stats,
-     'embed': cmd_embed, 'semantic': cmd_semantic}[args.cmd](args)
+     'embed': cmd_embed, 'semantic': cmd_semantic, 'hybrid': cmd_hybrid, 'sync': cmd_sync}[args.cmd](args)
 
 
 if __name__ == '__main__':
