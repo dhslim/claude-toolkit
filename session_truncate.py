@@ -116,6 +116,57 @@ def _content_block_types(line: dict) -> list[str]:
     return []
 
 
+def _tool_ids(line: dict) -> tuple[list[str], list[str]]:
+    """(tool_use ids, tool_result tool_use_ids) present in this line."""
+    uses: list[str] = []
+    results: list[str] = []
+    c = _api_msg(line).get("content")
+    if isinstance(c, list):
+        for b in c:
+            if not isinstance(b, dict):
+                continue
+            if b.get("type") == "tool_use" and b.get("id"):
+                uses.append(b["id"])
+            elif b.get("type") == "tool_result" and b.get("tool_use_id"):
+                results.append(b["tool_use_id"])
+    return uses, results
+
+
+def check_tool_pairing(kept_lines: list[dict]) -> dict:
+    """ID-based tool_use<->tool_result pairing check on the kept slice.
+
+    orphan_results : tool_result ids with NO matching tool_use in the slice.
+                     THE dangerous case a bad cut creates — the API rejects a
+                     tool_result whose tool_use isn't present.
+    dangling_uses  : tool_use ids with NO matching tool_result in the slice.
+    dangling_at_leaf: True iff every dangling tool_use lives in the last line
+                     that has any tool_use (benign: a mid-tool leaf that exists
+                     in the original session too — not caused by truncation).
+    """
+    per_line: list[tuple[int, list[str], list[str]]] = []
+    all_use, all_res = [], []
+    for idx, l in enumerate(kept_lines):
+        u, r = _tool_ids(l)
+        all_use += u
+        all_res += r
+        per_line.append((idx, u, r))
+    use_set, res_set = set(all_use), set(all_res)
+    orphan_results = [rid for rid in all_res if rid not in use_set]
+    dangling_uses = [uid for uid in all_use if uid not in res_set]
+    last_use_idx = max((idx for idx, u, _ in per_line if u), default=None)
+    dangling_at_leaf = bool(dangling_uses)
+    for uid in dangling_uses:
+        holders = [idx for idx, u, _ in per_line if uid in u]
+        if any(h != last_use_idx for h in holders):
+            dangling_at_leaf = False
+            break
+    return {
+        "orphan_results": orphan_results,
+        "dangling_uses": dangling_uses,
+        "dangling_at_leaf": dangling_at_leaf,
+    }
+
+
 def _preview(line: dict, width: int = 60) -> str:
     c = _api_msg(line).get("content")
     text = ""
@@ -169,8 +220,7 @@ def analyze(path: Path, keep_target: int) -> None:
 
     # structural sanity of the kept slice
     first_ok = bool(kept_groups) and is_real_user_line(kept_groups[0][0])
-    n_tool_use = sum(1 for l in kept_lines if "tool_use" in _content_block_types(l))
-    n_tool_res = sum(1 for l in kept_lines if "tool_result" in _content_block_types(l))
+    pairing = check_tool_pairing(kept_lines)
 
     from collections import Counter
     type_counts = Counter(l.get("type") for l in lines if isinstance(l, dict))
@@ -192,10 +242,18 @@ def analyze(path: Path, keep_target: int) -> None:
     print("-" * 60)
     print("STRUCTURAL SANITY OF KEPT SLICE:")
     print(f"  first kept line is a real user turn: {first_ok}  {'OK' if first_ok else 'BAD'}")
-    print(f"  tool_use blocks:    {n_tool_use}")
-    print(f"  tool_result blocks: {n_tool_res}")
-    bal = n_tool_use == n_tool_res
-    print(f"  tool pairing balanced: {bal}  {'OK' if bal else 'CHECK (may be a pending/leaf tool_use)'}")
+    orphans = pairing["orphan_results"]
+    dangling = pairing["dangling_uses"]
+    print(f"  orphan tool_results (result w/o its tool_use): {len(orphans)}  "
+          f"{'OK' if not orphans else 'BAD -> the API would reject this cut'}")
+    print(f"  dangling tool_uses  (use w/o its result):      {len(dangling)}")
+    if dangling:
+        where = ("all at the leaf — benign, same as the original session"
+                 if pairing["dangling_at_leaf"] else
+                 "NOT all at the leaf — needs handling before writing")
+        print(f"    -> {where}")
+    slice_api_safe = (not orphans) and (not dangling or pairing["dangling_at_leaf"])
+    print(f"  SLICE IS API-SAFE:  {slice_api_safe}  {'OK' if slice_api_safe else 'NEEDS WORK'}")
     if kept_groups:
         print("-" * 60)
         print(f"  first kept turn: {_preview(kept_groups[0][0])!r}")
@@ -205,6 +263,12 @@ def analyze(path: Path, keep_target: int) -> None:
 
 
 def main() -> int:
+    # Session text is full of Korean / em-dashes / emoji; force UTF-8 so the
+    # console (cp949 on Korean Windows) never crashes on a print.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
     ap = argparse.ArgumentParser(description="Analyze/trim a Claude Code session JSONL.")
     ap.add_argument("--analyze", metavar="JSONL", help="path to a session JSONL to analyze (read-only)")
     ap.add_argument("--keep", type=int, default=DEFAULT_KEEP_TARGET, help="est tokens of recent history to keep")
