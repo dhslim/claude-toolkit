@@ -262,6 +262,100 @@ def analyze(path: Path, keep_target: int) -> None:
     print("(read-only: nothing written)")
 
 
+# --- Increment 2a: WRITE a truncated fork -------------------------------------
+# Non-destructive: reads src, writes a NEW file at out_path. Never touches the
+# source or any running process. Does NOT yet retarget cwd or compact the header
+# for the resume picker (that's Increment 2b) — this proves the core transform.
+
+def _first_user_index(lines: list) -> "int | None":
+    for i, l in enumerate(lines):
+        if isinstance(l, dict) and l.get("type") == "user":
+            return i
+    return None
+
+
+def _find_cut(groups: list, gtok: list, keep_target: int) -> tuple:
+    kept = 0
+    keep_from = len(groups)
+    for i in range(len(groups) - 1, -1, -1):
+        if kept + gtok[i] > keep_target and kept > 0:
+            break
+        kept += gtok[i]
+        keep_from = i
+    return keep_from, kept
+
+
+def truncate(src_path: Path, keep_target: int, out_path: Path) -> dict:
+    import uuid as _uuid
+    lines = load_jsonl(src_path)
+    conv = [l for l in lines if isinstance(l, dict) and is_conversation_line(l)]
+    groups = split_into_turn_groups(conv)
+    gtok = [sum(est_tokens(l) for l in g) for g in groups]
+    keep_from, kept_tok = _find_cut(groups, gtok, keep_target)
+    kept_groups = groups[keep_from:]
+    if not kept_groups:
+        raise ValueError("keep_target too small — nothing kept")
+
+    cut_uuid = kept_groups[0][0].get("uuid")
+    cut_idx = next((i for i, l in enumerate(lines)
+                    if isinstance(l, dict) and l.get("uuid") == cut_uuid), None)
+    first_user_idx = _first_user_index(lines)
+    if cut_idx is None or first_user_idx is None:
+        raise ValueError("could not locate cut line / first user message")
+
+    header = lines[:first_user_idx]                 # pre-conversation state lines
+    body = [dict(l) if isinstance(l, dict) else l   # shallow-copy so we don't mutate src objects
+            for l in lines[cut_idx:]]
+    if isinstance(body[0], dict):
+        body[0]["parentUuid"] = None                # re-root the new first message
+
+    new_sid = str(_uuid.uuid4())
+    out_lines = []
+    for l in header + body:
+        if isinstance(l, dict) and "sessionId" in l:
+            l = {**l, "sessionId": new_sid}
+        out_lines.append(l)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with out_path.open("w", encoding="utf-8", newline="\n") as f:
+        for l in out_lines:
+            f.write((json.dumps(l, ensure_ascii=False) if isinstance(l, dict) else l) + "\n")
+
+    return {
+        "out_path": str(out_path),
+        "new_session_id": new_sid,
+        "src_lines": len(lines),
+        "out_lines": len(out_lines),
+        "header_lines": len(header),
+        "kept_groups": len(kept_groups),
+        "dropped_groups": keep_from,
+        "kept_est_tokens": kept_tok,
+    }
+
+
+def verify_output(out_path: Path) -> dict:
+    """Re-parse a written file and confirm it's structurally API-safe."""
+    lines = load_jsonl(out_path)
+    conv = [l for l in lines if isinstance(l, dict) and is_conversation_line(l)]
+    first = conv[0] if conv else None
+    first_is_user = bool(first) and is_real_user_line(first)
+    first_rerooted = bool(first) and first.get("parentUuid") is None
+    pairing = check_tool_pairing(conv)
+    api_safe = (first_is_user and first_rerooted
+                and not pairing["orphan_results"]
+                and (not pairing["dangling_uses"] or pairing["dangling_at_leaf"]))
+    return {
+        "lines": len(lines),
+        "conv_lines": len(conv),
+        "first_conv_is_user": first_is_user,
+        "first_conv_rerooted": first_rerooted,
+        "orphan_results": len(pairing["orphan_results"]),
+        "dangling_uses": len(pairing["dangling_uses"]),
+        "dangling_at_leaf": pairing["dangling_at_leaf"],
+        "API_SAFE": api_safe,
+    }
+
+
 def main() -> int:
     # Session text is full of Korean / em-dashes / emoji; force UTF-8 so the
     # console (cp949 on Korean Windows) never crashes on a print.
@@ -271,17 +365,43 @@ def main() -> int:
         pass
     ap = argparse.ArgumentParser(description="Analyze/trim a Claude Code session JSONL.")
     ap.add_argument("--analyze", metavar="JSONL", help="path to a session JSONL to analyze (read-only)")
+    ap.add_argument("--truncate", metavar="JSONL", help="path to a source session JSONL to truncate (writes --out)")
+    ap.add_argument("--out", metavar="JSONL", help="output path for the truncated fork (required with --truncate)")
     ap.add_argument("--keep", type=int, default=DEFAULT_KEEP_TARGET, help="est tokens of recent history to keep")
     args = ap.parse_args()
-    if not args.analyze:
-        ap.print_help()
-        return 2
-    path = Path(args.analyze).expanduser()
-    if not path.is_file():
-        print(f"error: not a file: {path}", file=sys.stderr)
-        return 1
-    analyze(path, args.keep)
-    return 0
+
+    if args.analyze:
+        path = Path(args.analyze).expanduser()
+        if not path.is_file():
+            print(f"error: not a file: {path}", file=sys.stderr)
+            return 1
+        analyze(path, args.keep)
+        return 0
+
+    if args.truncate:
+        src = Path(args.truncate).expanduser()
+        if not src.is_file():
+            print(f"error: not a file: {src}", file=sys.stderr)
+            return 1
+        if not args.out:
+            print("error: --truncate requires --out", file=sys.stderr)
+            return 2
+        out = Path(args.out).expanduser()
+        if out.resolve() == src.resolve():
+            print("error: --out must differ from source (never overwrite the original)", file=sys.stderr)
+            return 2
+        info = truncate(src, args.keep, out)
+        print("TRUNCATED (non-destructive: source untouched):")
+        for k, v in info.items():
+            print(f"  {k:16}: {v}")
+        print("SELF-VERIFY (re-parsed the written file):")
+        v = verify_output(out)
+        for k, val in v.items():
+            print(f"  {k:18}: {val}")
+        return 0 if v["API_SAFE"] else 1
+
+    ap.print_help()
+    return 2
 
 
 if __name__ == "__main__":
