@@ -127,9 +127,13 @@ FIVE_H_RESET=$(echo "$input" | jq -r '.rate_limits.five_hour.resets_at // empty'
 # statusline), so it reflects the last fetch/pull. Silently skipped if the path
 # file is absent or the directory is not a git repo.
 TK_SEG=""
-TK_DIR=$(cat "$HOME/.claude/claude_toolkit_dir" 2>/dev/null)
-if [ -n "$TK_DIR" ] && git -C "$TK_DIR" rev-parse --git-dir > /dev/null 2>&1; then
-    TK_SHA=$(git -C "$TK_DIR" rev-parse --short HEAD 2>/dev/null)
+# tr -d '\r': a CRLF-terminated path file (Windows editors default to CRLF) would
+# otherwise leave a trailing \r that command substitution does NOT strip, breaking
+# git -C. Using rev-parse --short HEAD as the guard also drops a redundant git call.
+TK_DIR=$(cat "$HOME/.claude/claude_toolkit_dir" 2>/dev/null | tr -d '\r')
+TK_SHA=""
+[ -n "$TK_DIR" ] && TK_SHA=$(git -C "$TK_DIR" rev-parse --short HEAD 2>/dev/null)
+if [ -n "$TK_SHA" ]; then
     TK_BEHIND=$(git -C "$TK_DIR" rev-list --count HEAD..origin/main 2>/dev/null | tr -dc '0-9')
     [ -z "$TK_BEHIND" ] && TK_BEHIND=0
     if [ "$TK_BEHIND" -ge 10 ]; then TK_COLOR="$RED"
