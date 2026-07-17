@@ -122,6 +122,8 @@ def upsert_session(collection, doc):
                 'message_count': doc['message_count'],
                 'raw_line_count': doc['raw_line_count'],
                 'messages': doc['messages'],
+                'truncated': doc.get('truncated', False),
+                'truncated_dropped_oldest': doc.get('truncated_dropped_oldest', 0),
             }},
             upsert=True,
         )
@@ -148,16 +150,26 @@ def sync_one_file(collection, file_path):
         'messages': parsed['messages'],
     }
 
-    # BSON 16MB limit check (~14MB safety margin)
+    # BSON 16MB limit check (~14MB safety margin). Long-lived (e.g. proxy-trimmed)
+    # sessions can exceed this. Keep the NEWEST messages and drop the oldest — the
+    # warehouse is for recent-activity recall (mgo, quiz, reports), so the recent
+    # tail is what matters. NOTE: was [:0.8] (keep-oldest), which silently dropped
+    # the most recent work from any >14MB session; now [-0.8:] (keep-newest).
     estimated_size = len(json.dumps(doc, default=str).encode('utf-8'))
+    doc['truncated'] = False
+    doc['truncated_dropped_oldest'] = 0
     if estimated_size > 14 * 1024 * 1024:
-        print(f'Warning: session {parsed["session_id"]} too large '
-              f'({estimated_size / 1024 / 1024:.1f}MB) — truncating messages',
-              file=sys.stderr)
+        before = len(doc['messages'])
         while (len(json.dumps(doc, default=str).encode('utf-8')) > 14 * 1024 * 1024
                and len(doc['messages']) > 10):
-            doc['messages'] = doc['messages'][:int(len(doc['messages']) * 0.8)]
+            doc['messages'] = doc['messages'][-int(len(doc['messages']) * 0.8):]  # keep newest 80%
             doc['message_count'] = len(doc['messages'])
+        doc['truncated'] = True
+        doc['truncated_dropped_oldest'] = before - len(doc['messages'])
+        # Loud: goes to stderr AND is persisted on the doc (query {truncated:true}).
+        print(f'TRUNCATED {parsed["session_id"]}: kept newest {len(doc["messages"])} of '
+              f'{before} msgs ({doc["truncated_dropped_oldest"]} oldest dropped) — '
+              f'source was {estimated_size / 1024 / 1024:.1f}MB', file=sys.stderr)
 
     action = upsert_session(collection, doc)
     return {
