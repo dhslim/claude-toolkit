@@ -120,10 +120,33 @@ fi
 FIVE_H=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty')
 FIVE_H_RESET=$(echo "$input" | jq -r '.rate_limits.five_hour.resets_at // empty')
 
+# Toolkit version + drift (dedicated segment, independent of cwd). The
+# claude-toolkit repo path is written to ~/.claude/claude_toolkit_dir at install
+# time (it differs per machine). Show the deployed short-SHA and how many commits
+# it is behind origin/main, computed from LOCAL refs only (NO network fetch in the
+# statusline), so it reflects the last fetch/pull. Silently skipped if the path
+# file is absent or the directory is not a git repo.
+TK_SEG=""
+TK_DIR=$(cat "$HOME/.claude/claude_toolkit_dir" 2>/dev/null)
+if [ -n "$TK_DIR" ] && git -C "$TK_DIR" rev-parse --git-dir > /dev/null 2>&1; then
+    TK_SHA=$(git -C "$TK_DIR" rev-parse --short HEAD 2>/dev/null)
+    TK_BEHIND=$(git -C "$TK_DIR" rev-list --count HEAD..origin/main 2>/dev/null | tr -dc '0-9')
+    [ -z "$TK_BEHIND" ] && TK_BEHIND=0
+    if [ "$TK_BEHIND" -ge 10 ]; then TK_COLOR="$RED"
+    elif [ "$TK_BEHIND" -ge 1 ]; then TK_COLOR="$YELLOW"
+    else TK_COLOR="$GREEN"; fi
+    if [ "$TK_BEHIND" -ge 1 ]; then
+        TK_SEG="${TK_COLOR}tk:${TK_SHA} ${TK_BEHIND} behind${RESET}"
+    else
+        TK_SEG="${TK_COLOR}tk:${TK_SHA}${RESET}"
+    fi
+fi
+
 # Line 1
 LINE="${CYAN}${MODEL}${RESET}"
 [ -n "$EFFORT" ] && LINE="$LINE ${MAGENTA}(${EFFORT})${RESET}"
 [ -n "$BRANCH" ] && LINE="$LINE | ${GREEN}${BRANCH}${RESET} [${STATUS}]"
+[ -n "$TK_SEG" ] && LINE="$LINE | ${TK_SEG}"
 LINE="$LINE | ${SEG_LABEL} ${BAR_COLOR}[${BAR}]${RESET} ${PCT}%"
 [ -n "$SIZE_STR" ] && LINE="$LINE | ${SIZE_STR}"
 

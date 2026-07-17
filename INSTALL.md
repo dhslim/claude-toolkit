@@ -69,6 +69,12 @@ Copy `statusline.sh` from this repo to `~/.claude/statusline.sh` and make it exe
 
 The settings.json already references this path via `~/.claude/statusline.sh`.
 
+Then write this repo's absolute path to `~/.claude/claude_toolkit_dir` (one line):
+
+  printf '%s' "<absolute path to this repo>" > ~/.claude/claude_toolkit_dir
+
+The status line reads that file to render a `tk:<short-sha>` segment — the toolkit's deployed commit and how many commits it is behind `origin/main` — so every machine shows its toolkit version and drift at a glance. It is computed from local git refs only (no network fetch), so it reflects the last `git fetch`/`git pull`; the segment is silently skipped if the file is absent.
+
 ### 7. Update global CLAUDE.md
 
 Read ~/.claude/CLAUDE.md (create it if it doesn't exist). Ensure ALL blocks below are present — for each, if its section is missing append it; if it already exists, update it to match. Preserve all other existing content.
