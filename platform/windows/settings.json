@@ -90,6 +90,11 @@
             "command": "{{REPO_DIR}}/.venv/Scripts/pythonw.exe {{REPO_DIR}}/sync_conversations.py --scan",
             "timeout": 60000,
             "async": true
+          },
+          {
+            "type": "command",
+            "command": "{{REPO_DIR}}/.venv/Scripts/python.exe {{REPO_DIR}}/hook_toolkit_drift.py",
+            "timeout": 5000
           }
         ]
       }

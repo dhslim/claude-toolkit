@@ -91,6 +91,11 @@
             "command": "{{REPO_DIR}}/.venv/bin/python {{REPO_DIR}}/sync_conversations.py --scan",
             "timeout": 60000,
             "async": true
+          },
+          {
+            "type": "command",
+            "command": "{{REPO_DIR}}/.venv/bin/python {{REPO_DIR}}/hook_toolkit_drift.py",
+            "timeout": 5000
           }
         ]
       }

@@ -69,11 +69,7 @@ Copy `statusline.sh` from this repo to `~/.claude/statusline.sh` and make it exe
 
 The settings.json already references this path via `~/.claude/statusline.sh`.
 
-Then write this repo's absolute path to `~/.claude/claude_toolkit_dir` (one line):
-
-  printf '%s' "<absolute path to this repo>" > ~/.claude/claude_toolkit_dir
-
-The status line reads that file to render a `tk:<short-sha>` segment — the toolkit's deployed commit and how many commits it is behind `origin/main` — so every machine shows its toolkit version and drift at a glance. It is computed from local git refs only (no network fetch), so it reflects the last `git fetch`/`git pull`; the segment is silently skipped if the file is absent.
+Toolkit-drift notifier: the SessionStart hook `hook_toolkit_drift.py` (wired via the platform `settings.json` in step 5) warns you when this repo is behind `origin/main`. It reads a cached "N behind" count instantly at session start and, if behind, tells Claude to suggest `git pull`; a detached ~24h-throttled `git fetch` refreshes that cache off the startup path. It never pulls on its own; opt out with `TOOLKIT_NO_UPDATE_CHECK=1`.
 
 ### 7. Update global CLAUDE.md
 
