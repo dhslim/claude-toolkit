@@ -119,6 +119,11 @@ fi
 # Rate limits
 FIVE_H=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty')
 FIVE_H_RESET=$(echo "$input" | jq -r '.rate_limits.five_hour.resets_at // empty')
+# Weekly (7-day) window, exposed by CC parallel to five_hour. Try a couple of
+# candidate key names so the segment lights up regardless of the exact field, and
+# stays empty (segment skipped) if CC provides no weekly window at all.
+SEVEN_D=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // .rate_limits.weekly.used_percentage // empty')
+SEVEN_D_RESET=$(echo "$input" | jq -r '.rate_limits.seven_day.resets_at // .rate_limits.weekly.resets_at // empty')
 
 # Toolkit version + drift (dedicated segment, independent of cwd). The
 # claude-toolkit repo path is written to ~/.claude/claude_toolkit_dir at install
@@ -162,11 +167,24 @@ if [ -n "$FIVE_H" ]; then
     FIVE_TTL=""
     if [ -n "$FIVE_H_RESET" ]; then
         REMAINING=$((FIVE_H_RESET - NOW))
-        if [ "$REMAINING" -gt 0 ]; then
-            FIVE_TTL="$(($REMAINING / 3600))h$(($REMAINING % 3600 / 60))m"
-        fi
+        [ "$REMAINING" -gt 0 ] && FIVE_TTL=" ($((REMAINING / 3600))h$((REMAINING % 3600 / 60))m)"
     fi
-    LINE="$LINE | ${LIM_COLOR}${FIVE_TTL}: ${FH}%${RESET}"
+    LINE="$LINE | ${LIM_COLOR}5h:${FH}%${FIVE_TTL}${RESET}"
+fi
+
+# Weekly (7-day) usage, mirroring the 5h segment (TTL in days+hours since the
+# window is a week). Skipped entirely when CC provides no weekly field.
+if [ -n "$SEVEN_D" ]; then
+    SD=$(echo "$SEVEN_D" | jq 'ceil')
+    if [ "$SD" -ge 80 ]; then SD_COLOR="$RED"
+    elif [ "$SD" -ge 50 ]; then SD_COLOR="$YELLOW"
+    else SD_COLOR="$GREEN"; fi
+    SEVEN_TTL=""
+    if [ -n "$SEVEN_D_RESET" ]; then
+        SREMAIN=$((SEVEN_D_RESET - NOW))
+        [ "$SREMAIN" -gt 0 ] && SEVEN_TTL=" ($((SREMAIN / 86400))d$((SREMAIN % 86400 / 3600))h)"
+    fi
+    LINE="$LINE | ${SD_COLOR}7d:${SD}%${SEVEN_TTL}${RESET}"
 fi
 
 echo -e "$LINE"
