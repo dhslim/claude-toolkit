@@ -11,6 +11,7 @@ import argparse
 import json
 import os
 import platform
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,6 +25,41 @@ DEVICE = platform.node()
 SKIP_TYPES = frozenset([
     'file-history-snapshot', 'progress', 'last-prompt', 'queue-operation'
 ])
+
+TOOLKIT_REPO = Path(__file__).resolve().parent
+
+# Version provenance: the claude-toolkit commit this sync is running under, so
+# every session doc records which toolkit version produced it. Computed once per
+# process (identical for every file in a scan); fails soft to None outside git.
+_TOOLKIT_INFO = None
+
+
+def toolkit_commit_info():
+    """Return {'toolkit_commit', 'toolkit_commit_date', 'toolkit_dirty'}.
+
+    toolkit_commit = short SHA, toolkit_commit_date = committer ISO-8601 date,
+    toolkit_dirty = uncommitted changes present. Any field is None / False if git
+    is unavailable. Cached for the process (same for all files in one scan).
+    """
+    global _TOOLKIT_INFO
+    if _TOOLKIT_INFO is not None:
+        return _TOOLKIT_INFO
+
+    def _git(*args):
+        return subprocess.run(
+            ['git', '-C', str(TOOLKIT_REPO), *args],
+            capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+
+    info = {'toolkit_commit': None, 'toolkit_commit_date': None, 'toolkit_dirty': False}
+    try:
+        info['toolkit_commit'] = _git('rev-parse', '--short', 'HEAD') or None
+        info['toolkit_commit_date'] = _git('log', '-1', '--format=%cI') or None
+        info['toolkit_dirty'] = bool(_git('status', '--porcelain'))
+    except Exception:
+        pass
+    _TOOLKIT_INFO = info
+    return info
 
 
 def parse_jsonl(file_path):
@@ -124,6 +160,9 @@ def upsert_session(collection, doc):
                 'messages': doc['messages'],
                 'truncated': doc.get('truncated', False),
                 'truncated_dropped_oldest': doc.get('truncated_dropped_oldest', 0),
+                'toolkit_commit': doc.get('toolkit_commit'),
+                'toolkit_commit_date': doc.get('toolkit_commit_date'),
+                'toolkit_dirty': doc.get('toolkit_dirty', False),
             }},
             upsert=True,
         )
@@ -148,6 +187,7 @@ def sync_one_file(collection, file_path):
         'message_count': len(parsed['messages']),
         'raw_line_count': parsed['raw_line_count'],
         'messages': parsed['messages'],
+        **toolkit_commit_info(),
     }
 
     # BSON 16MB limit check (~14MB safety margin). Long-lived (e.g. proxy-trimmed)
