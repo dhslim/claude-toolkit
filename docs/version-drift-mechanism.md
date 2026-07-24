@@ -47,14 +47,18 @@ happens to machines that **didn't** push.
 ## The drift notifier (`hook_toolkit_drift.py`)
 
 A SessionStart hook. Because a session start must never lag, it does **not** fetch
-on the hot path — it reads a cached count and refreshes in the background.
+on the hot path. The count is cheap and local, so it caches only the *fetch time*
+(the one thing that needs the network) and recomputes the count live each run.
 
-1. Read the cache `~/.claude/toolkit_drift.json` → `{"behind": N, "ts": <unix>}`.
-2. If `N > 0`: inject `hookSpecificOutput.additionalContext` phrased as an
+1. Recompute `behind` **live**: `git rev-list --count HEAD..origin/main` — local,
+   instant, against the *current* HEAD. (So a `git pull` drops it to 0 at once.)
+2. If `behind > 0`: inject `hookSpecificOutput.additionalContext` phrased as an
    instruction ("toolkit is N behind — tell the user to `git pull`"), plus the
    incoming `git log` as the changelog.
-3. If the cache is missing or **stale** (older than the TTL), spawn a **detached**
-   `--refresh` (git fetch + recount + rewrite cache) that runs off the hot path.
+3. Throttle the network fetch: if the cache `~/.claude/toolkit_drift.json` →
+   `{"ts": <unix>}` is missing or **stale** (older than the TTL), spawn a
+   **detached** `--refresh` (git fetch to advance origin/main + re-stamp the fetch
+   time) that runs off the hot path.
 
 Notify-only — it never pulls. Silent when `N == 0` (that's it working). Opt out
 with `TOOLKIT_NO_UPDATE_CHECK=1`. First run stays silent (nothing cached yet).
@@ -83,16 +87,17 @@ subtraction, sees `> 24h`, and refreshes.
 
 ### The timeliness trade-off
 
-Because the hook reads the cache *now* and refreshes for *next time*, a behind
-machine can be up to **~24h + one session** late to notice:
+The *fetch* is throttled to the TTL, so `origin/main` can be up to ~24h stale — a
+brand-new remote commit isn't *known* until the next background fetch. The count,
+though, is always live against the current HEAD, which cleanly splits the two:
 
-- session A finds the cache stale → shows the (possibly old) count, spawns a refresh
-- the refresh writes the fresh count
-- session B reads the fresh count → shows the accurate "behind"
+- **learning about a new remote commit** is fetch-bounded: up to ~24h + one session
+- **a resolved drift clears instantly** — after you `git pull`, the live recount is
+  0, so the notice vanishes immediately (no lingering false-nag; caching the *count*
+  instead was the original bug this design fixes)
 
-For a toolkit updated many times a day this is the main imperfection. Shrinking
-`TTL_SECONDS`, or switching the stale case to a short **blocking** fetch
-(`fetch-on-stale`), trades a rare ~1s startup blip for near-immediate detection.
+Shrinking `TTL_SECONDS`, or a short **blocking** fetch when the stamp is stale
+(`fetch-on-stale`), tightens the "learn about new commits" side.
 
 ## Session provenance (`sync_conversations.py`)
 

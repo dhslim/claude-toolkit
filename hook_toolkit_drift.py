@@ -8,16 +8,18 @@ fetch. `git rev-list --count HEAD..origin/main` counts the commits origin/main
 has that HEAD doesn't — that count is "N behind". It's pure local graph math
 (instant, offline); only `git fetch` touches the network.
 
-So we split the two:
-  - Fast path (default run): read a CACHED behind-count and, if > 0, inject an
-    instruction telling Claude to let the user know. Never touches the network,
-    so session startup never lags.
-  - Refresh path (`--refresh`, spawned DETACHED): git fetch + recount + rewrite
-    the cache, at most ~once/24h, in a separate process — the network cost is
-    off the startup path entirely.
+The count is cheap and local, so we cache only the *fetch* (the one thing that
+needs the network), never the number:
+  - Fast path (default run): recompute the count LIVE against the current HEAD
+    and, if > 0, inject an instruction telling Claude to let the user know. No
+    network, so startup never lags — and because the number is never cached, a
+    `git pull` clears the notice instantly instead of lingering until the TTL.
+  - Refresh path (`--refresh`, spawned DETACHED): git fetch to advance
+    origin/main + stamp the fetch time, at most ~once/24h, in a separate process
+    — the network cost is off the startup path entirely.
 
 Notify-only: it never pulls; you pull when you're ready. Opt out with
-TOOLKIT_NO_UPDATE_CHECK=1. First run stays silent (nothing cached yet).
+TOOLKIT_NO_UPDATE_CHECK=1. First run stays silent (no fetch of our own yet).
 """
 import json
 import os
@@ -38,19 +40,35 @@ def _git(*args, timeout=10):
     )
 
 
-def refresh():
-    """Detached mode: fetch origin/main, recount behind, rewrite the cache.
+def local_behind():
+    """Commits origin/main has that HEAD doesn't — LOCAL graph math, no network.
 
-    Bounded by timeouts; any failure (offline, etc.) is swallowed silently — a
-    missed refresh just means the cached count is a bit older next time.
+    Recomputed on every run against the CURRENT HEAD, so a `git pull` drops it to 0
+    immediately. Returns None if git is unavailable (caller then stays silent).
+    """
+    try:
+        out = _git("rev-list", "--count", "HEAD..origin/main").stdout.strip()
+        return int(out) if out.isdigit() else None
+    except Exception:
+        return None
+
+
+def refresh():
+    """Detached mode: git fetch to advance origin/main, then stamp the fetch time.
+
+    The behind-count is deliberately NOT stored — it is recomputed live on every run
+    (see local_behind), so a `git pull` clears the notice instantly instead of
+    lingering until the TTL. The cache exists ONLY to throttle the network fetch.
+    The timestamp is stamped even if the fetch fails, so a failing fetch (offline)
+    isn't retried on every single session start.
     """
     try:
         _git("fetch", "--quiet", "origin", "main", timeout=30)
-        out = _git("rev-list", "--count", "HEAD..origin/main").stdout.strip()
-        behind = int(out) if out.isdigit() else 0
+    except Exception:
+        pass
+    try:
         STATE.parent.mkdir(parents=True, exist_ok=True)
-        STATE.write_text(json.dumps({"behind": behind, "ts": time.time()}),
-                         encoding="utf-8")
+        STATE.write_text(json.dumps({"ts": time.time()}), encoding="utf-8")
     except Exception:
         pass
 
@@ -96,17 +114,21 @@ def main():
     cache = read_cache()
     now = time.time()
 
-    # Kick a background refresh when we've never checked or the check is stale.
+    # Throttle only the network FETCH (which advances origin/main): refresh in the
+    # background when we've never fetched or the last fetch is older than the TTL.
     if not cache or (now - cache.get("ts", 0)) > TTL_SECONDS:
         spawn_refresh()
 
-    # First run: nothing cached yet → stay silent (don't nag); the refresh we just
-    # spawned will populate the count for next session.
+    # First run: no fetch of our own yet → stay silent rather than judge a stale
+    # clone; the refresh we just spawned stamps the cache for next session.
     if not cache:
         return
 
-    behind = cache.get("behind", 0)
-    if not isinstance(behind, int) or behind <= 0:
+    # Count LIVE against the current HEAD (local, instant, no network). Because the
+    # number is never cached, a `git pull` drops it to 0 and the notice vanishes at
+    # once — no lingering false-nag until the TTL.
+    behind = local_behind()
+    if not behind or behind <= 0:
         return
 
     # Local, no-network changelog of exactly what a `git pull` would bring in.
@@ -119,7 +141,7 @@ def main():
 
     context = (
         f"[toolkit-drift] claude-toolkit is {behind} commit(s) behind origin/main "
-        f"(as of the last background check). Briefly tell the user their "
+        f"(as of the last background fetch). Briefly tell the user their "
         f"claude-toolkit is {behind} commit(s) behind and suggest running "
         f"`git pull` in {REPO} when convenient."
     )
