@@ -108,6 +108,7 @@
   "effortLevel": "xhigh",
   "model": "opus[1m]",
   "autoUpdatesChannel": "latest",
+  "cleanupPeriodDays": 3650,
   "skipDangerousModePermissionPrompt": true,
   "tui": "fullscreen",
   "autoScrollEnabled": false

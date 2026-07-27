@@ -109,6 +109,7 @@
   "effortLevel": "xhigh",
   "model": "opus[1m]",
   "autoUpdatesChannel": "latest",
+  "cleanupPeriodDays": 3650,
   "tui": "fullscreen",
   "autoScrollEnabled": false
 }

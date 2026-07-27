@@ -75,7 +75,14 @@ Hooks cover all sync scenarios — no cron needed:
 ### 16MB BSON limit
 - Only SKIP_TYPES blacklist filtered (file-history-snapshot, progress, last-prompt, queue-operation)
 - Everything else stored (tool_use input, tool_result output, thinking blocks)
-- Auto-truncates if >14MB
+- Auto-truncates if >14MB — keeps the **newest** messages, drops the oldest (`messages[-0.8:]`), flags the doc `truncated: true`
+
+### Local transcript retention (`cleanupPeriodDays`)
+- Claude Code auto-deletes transcripts from `~/.claude/projects` once they're older than `cleanupPeriodDays` (CC default: **30 days**), by last-activity date. Past that window a session can no longer be `--resume`d or forked locally.
+- The platform `settings.json` templates set **`cleanupPeriodDays: 3650`** (~10 years) so local transcripts effectively persist — you keep resume/fork access to old sessions across all machines.
+- MongoDB remains the **durable archive** regardless: the Stop/SessionEnd hooks sync each transcript to Mongo *before* CC's local cleanup runs, so Mongo is a **superset** of local disk (it retains sessions even after their local JSONL is purged). Raising `cleanupPeriodDays` only widens the *local* rolling window; it does not affect Mongo.
+- Trade-off: longer local retention grows `~/.claude/projects` disk usage (a few GB/year at moderate volume). Lower the value if local disk gets tight — Mongo still has everything.
+- Note: this only governs *future* cleanup; transcripts already purged under the old 30-day default survive only in Mongo (reconstruct locally from there if needed).
 
 ### Session forking behavior (same-machine concurrent resume)
 - When two terminals `claude --resume` the same session, both append to the **same JSONL file**
