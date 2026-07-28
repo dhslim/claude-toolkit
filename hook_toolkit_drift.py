@@ -32,11 +32,16 @@ REPO = Path(__file__).resolve().parent
 STATE = Path.home() / ".claude" / "toolkit_drift.json"
 TTL_SECONDS = 24 * 60 * 60
 
+# Windows: run under pythonw.exe (no console), so a console child like git.exe
+# would CREATE a visible console window. CREATE_NO_WINDOW suppresses that flash.
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
+
 
 def _git(*args, timeout=10):
     return subprocess.run(
         ["git", "-C", str(REPO), *args],
         capture_output=True, text=True, timeout=timeout,
+        creationflags=_NO_WINDOW,
     )
 
 

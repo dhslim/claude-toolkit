@@ -13,6 +13,12 @@ import os
 import platform
 import subprocess
 import sys
+
+# Windows: these hooks run under pythonw.exe, which has NO console. A console
+# child (git.exe) spawned from a console-less parent must CREATE its own console
+# — a window that flashes on screen at every turn end. CREATE_NO_WINDOW suppresses
+# it. Zero elsewhere (the flag is Windows-only).
+_NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0) if sys.platform == 'win32' else 0
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -49,6 +55,7 @@ def toolkit_commit_info():
         return subprocess.run(
             ['git', '-C', str(TOOLKIT_REPO), *args],
             capture_output=True, text=True, timeout=5,
+            creationflags=_NO_WINDOW,
         ).stdout.strip()
 
     info = {'toolkit_commit': None, 'toolkit_commit_date': None, 'toolkit_dirty': False}
