@@ -31,6 +31,7 @@ claude-toolkit/
 ├── _sync_runner.py        # Detached child runner spawned by hook_sync.py
 ├── mongo_recent.py        # Query recent activity across all machines (/mgo skill)
 ├── session_transplant.py  # Clone a session JSONL into a different cwd (/transplant skill)
+├── session_unname.py      # Remove a session's name → clears the cyan badge (/unbadge skill)
 ├── digest.py              # URL → platform fetcher → uniform text (/digest skill)
 ├── fetchers/              # Per-platform fetchers (youtube, instagram, threads, reddit, generic)
 ├── skills/                # Vendored SKILL.md manifests for each slash command

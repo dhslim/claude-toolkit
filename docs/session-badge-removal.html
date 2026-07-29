@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Session badge removal — reverting /rename</title>
+<style>
+  :root{
+    --bg:#0d1117;--panel:#161b22;--panel2:#1a1f27;--bd:#30363d;
+    --tx:#c9d3de;--dim:#8b949e;--hi:#e6edf3;
+    --s:#a5d6ff;--add:#7ee787;--del:#ff7b72;--warn:#f0883e;--pur:#d2a8ff;
+    --mono:"SFMono-Regular",Consolas,Menlo,monospace;--sans:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--tx);font-family:var(--sans);line-height:1.6;margin:0;padding:0 16px 80px}
+  .wrap{max-width:960px;margin:0 auto}
+  header.top{padding:36px 0 12px;border-bottom:1px solid var(--bd);margin-bottom:8px}
+  h1{font-size:25px;color:var(--hi);margin:0 0 6px;letter-spacing:-.3px}
+  .sub{color:var(--dim);font-size:14px}
+  .tag{display:inline-block;font-family:var(--mono);font-size:11px;padding:2px 9px;border-radius:20px;border:1px solid var(--bd);color:var(--dim);margin-left:6px}
+  .tag.ok{border-color:#1f4a2f;color:var(--add);background:#0f1c12}
+  h2{font-size:19px;color:var(--hi);margin:34px 0 10px;padding-top:14px;border-top:1px solid var(--bd)}
+  h3{font-size:15px;color:var(--hi);margin:20px 0 6px}
+  p{margin:10px 0}
+  code{font-family:var(--mono);background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12.5px;color:var(--s)}
+  pre{background:var(--panel);border:1px solid var(--bd);border-radius:8px;padding:14px 16px;overflow:auto;font-family:var(--mono);font-size:12.5px;line-height:1.5}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--bd);vertical-align:top}
+  th{color:var(--dim);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.4px}
+  .lead{font-size:16px;color:var(--hi)}
+  .small{font-size:12.5px;color:var(--dim)}
+  .box{background:var(--panel);border:1px solid var(--bd);border-radius:10px;padding:14px 16px;margin:16px 0}
+  .box.warn{border-color:#5a3a1a;background:#1c160d}
+  .box.good{border-color:#1f4a2f;background:#0f1c12}
+  .box.bad{border-color:#5a1f1f;background:#1c0f0f}
+  ul{margin:8px 0;padding-left:22px}li{margin:5px 0}
+  b.k{color:var(--hi)}
+  .no{color:var(--del)}.ok{color:var(--add)}.warnc{color:var(--warn)}
+  .flow{font-family:var(--mono);font-size:12.5px;white-space:pre;overflow:auto;line-height:1.5}
+  .footer{margin-top:46px;padding-top:16px;border-top:1px solid var(--bd);color:var(--dim);font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>Session badge removal — reverting <code>/rename</code> <span class="tag ok">tooled 2026-07-30</span></h1>
+  <div class="sub">The cyan session-name badge above the input box, why it survives the obvious fixes, and the toolkit script that removes it.</div>
+</header>
+
+<p class="lead"><code>/rename</code> has no inverse. The name lives in <b>three</b> stores, not one — and the third only exists for some sessions, which is why two correct-looking attempts failed silently.</p>
+
+<h2>Use it</h2>
+<pre>python session_unname.py --list              # which sessions carry a name
+python session_unname.py &lt;sid&gt; --analyze     # report all 3 stores, write nothing
+python session_unname.py &lt;sid&gt;               # revert (refuses if the session is live)
+claude --resume &lt;sid&gt;                        # bring it back, now unnamed</pre>
+<p class="small">Or the one-step wrapper: <code>/unbadge</code> (skill) → lists, analyzes, confirms, reverts.</p>
+
+<h2>The three stores</h2>
+<table>
+  <tr><th>#</th><th>Path</th><th>Lifetime</th><th>Role / action</th></tr>
+  <tr>
+    <td>1</td><td><code>~/.claude/sessions/&lt;pid&gt;.json</code></td><td>ephemeral, per-pid</td>
+    <td>The <b>session record</b> — a discovery registry so <i>other</i> processes can find live sessions. <b>Not</b> what the TUI reads to draw its own badge. <span class="ok">No action</span>: deleted on exit, recreated on resume with a derived name.</td>
+  </tr>
+  <tr>
+    <td>2</td><td><code>~/.claude/projects/&lt;slug&gt;/&lt;sid&gt;.jsonl</code></td><td>persistent, per-session</td>
+    <td>The <b>transcript</b>. Carries the name across restarts via two entry types (below). Re-stamped <b>every turn</b> while the session is explicitly named. <span class="warnc">Strip these entries.</span></td>
+  </tr>
+  <tr>
+    <td>3</td><td><code>~/.claude/jobs/&lt;first8-of-sid&gt;/state.json</code></td><td>persistent, <b>daemon only</b></td>
+    <td>The <b>job state</b> (a supervisor's durable state). Survives process death and transcript strips, and re-applies the name on respawn. <span class="warnc">Remove <code>name</code> + <code>nameSource</code> only.</span> <span class="no">This is the one that gets missed.</span></td>
+  </tr>
+</table>
+
+<p>The two transcript entries that carry an explicit name:</p>
+<pre>{"type":"custom-title","customTitle":"&lt;name&gt;","sessionId":"..."}
+{"type":"agent-name","agentName":"&lt;name&gt;","sessionId":"..."}</pre>
+
+<p>And the respawn line that re-applies it from store 3 — the mechanism behind the "it came back" failure:</p>
+<pre>...c.name &amp;&amp; { name: c.name, nameSource: c.nameSource },</pre>
+
+<h2>Which sessions have store 3 — origin, not usage</h2>
+<div class="box">
+Only sessions <b>born as background jobs</b> carry a jobs entry (<code>backend=daemon</code>, <code>template=bg</code>). A session created headless keeps supervisor state <b>permanently</b> — even after a terminal is attached and it is used as an ordinary chat for days. A session started by typing <code>claude</code> never gets one.
+<div class="small" style="margin-top:8px">Checkable in advance: does <code>~/.claude/jobs/&lt;first-8-chars-of-sid&gt;/</code> exist? <b>yes</b> → 3 stores · <b>no</b> → 2 stores. <code>--analyze</code> answers this for you.</div>
+</div>
+<p class="small">Why it beat the two-store procedure twice: the process kept being killed and the transcript kept being cleaned, while the supervisor calmly re-applied the name it was holding for exactly that purpose. That wasn't a bug — it was a component doing its job.</p>
+
+<h2><code>nameSource</code> has three values, not two</h2>
+<table>
+  <tr><th>Value</th><th>Meaning</th><th>Badge?</th></tr>
+  <tr><td><code>&lt;absent&gt;</code></td><td>explicit name (in the session <i>record</i>, an explicit name omits the key)</td><td class="no">badge shown</td></tr>
+  <tr><td><code>"user"</code></td><td>explicit <code>/rename</code>, as recorded in <i>job state</i></td><td class="no">badge shown</td></tr>
+  <tr><td><code>"auto"</code> / <code>"derived"</code></td><td>auto-generated — <code>slug(cwd)</code> + short suffix</td><td class="ok">no badge</td></tr>
+</table>
+<p class="small">Target end state = exactly what a fresh session looks like: <code>name=&lt;slug&gt;-&lt;xx&gt;</code>, <code>nameSource=derived</code>, zero transcript name entries, no <code>name</code>/<code>nameSource</code> in job state.</p>
+
+<h2>Order matters — two guards the script enforces</h2>
+<div class="box warn">
+<ul style="margin:0">
+  <li><b class="k">Exit first, and judge liveness by PID.</b> Not by absence of a session record — records are per-pid and deleted on exit, so a record can be gone while a <i>different</i> pid still holds the session. The script checks live pids <i>and</i> refuses if the transcript was written in the last 20s (a live session with no record). <code>--force</code> overrides.</li>
+  <li><b class="k">Stripping a live session is pointless.</b> A named session re-stamps the transcript every turn, so the strip lasts seconds.</li>
+  <li><b class="k">Resume with <code>--resume &lt;sid&gt;</code>, never <code>--continue</code></b> — the latter picks the most recent session in the folder and may grab the wrong one.</li>
+</ul>
+</div>
+
+<h2>The grep trap (why the script parses JSON)</h2>
+<div class="box bad">
+<code>grep -c custom-title</code> over a transcript counts every message that merely <b>discusses</b> the words. In the original investigation that produced a false "the process re-stamps every turn" conclusion — the count rose simply because the conversation kept writing the term.
+<div style="margin-top:8px">The script prefilters on the substring (cheap) and then <b>JSON-parses the line and compares <code>obj["type"]</code> exactly</b>. It reports the discrepancy so the trap is visible, e.g.:</div>
+<pre style="margin-top:8px">lines=10324  name entries=4 (custom-title=0, agent-name=4)
+(21 line(s) merely MENTION those words — not counted; this is why grep over-counts)</pre>
+<div class="small">Real: 4. Naive grep: 25.</div>
+</div>
+
+<h2>Consider not doing it</h2>
+<div class="box good">
+The badge is cosmetic. <b>The name is not</b> — it is injected into the model's context each turn as a hint about the session's purpose. If the name is merely <i>wrong</i>, <code>/rename &lt;something-truthful&gt;</code> is the better fix: one command, no file surgery, and it improves the thing that actually matters. Use the script when you genuinely want <b>no</b> name.
+</div>
+
+<h2>Caveats</h2>
+<ul>
+  <li>The scrollback still contains the literal <code>/rename</code> line you typed — the rename stays visible in history, it is simply no longer in effect.</li>
+  <li>The <b>badge and the tab title are different consumers</b> reading the name by different rules. Clearing the badge can leave a tab title in place (that is often the desirable end state: empty badge, tab still describing the work).</li>
+  <li>Both edited files are backed up as <code>&lt;name&gt;.bak-unname-&lt;timestamp&gt;</code> first. The transcript is your entire conversation history — the backup is not optional insurance, it is the point.</li>
+</ul>
+
+<div class="footer">claude-toolkit · <code>session_unname.py</code> + <code>/unbadge</code> skill · mechanism verified against Claude Code v2.1.220 (Windows) · investigation artifact: "Reverting /rename: Claude Code's Session Name Badge"</div>
+
+</div>
+</body>
+</html>

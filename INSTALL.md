@@ -185,13 +185,26 @@ Copy the skill template from this repo to the global skills directory:
 
 This enables the `/digest <url>` slash command, which fetches and summarizes any supported social/web post (YouTube, Instagram, Threads, Reddit, Substack/blogs/news) via `digest.py` and the `fetchers/` package. Its extra dependencies (`yt-dlp`, `instaloader`) are already in requirements.txt, so step 2 covers them.
 
-### 14. Recommended environment variable
+### 14. Install /unbadge skill
+
+Copy the skill template from this repo to the global skills directory:
+
+1. Create `~/.claude/skills/unbadge/SKILL.md`
+2. Use the template from `skills/unbadge/SKILL.md` in this repo
+3. Replace `{{VENV_PYTHON}}` with the absolute path to this repo's venv python
+4. Replace `{{SCRIPT_DIR}}` with the absolute path to this repo's directory
+
+This enables the `/unbadge` slash command, which removes a session's name to clear the cyan session-name badge above the input box — the inverse of `/rename`, which Claude Code does not provide. It wraps `session_unname.py`: `/unbadge` lists sessions carrying a name, `/unbadge <session-id>` analyzes all three name stores and reverts after confirmation.
+
+The name lives in three places (session record, transcript, and — for daemon-backed sessions only — job state); missing the third is why the badge reappears. The script refuses to act on a live session, backs up every file it edits, and removes only the two name keys from job state. See `docs/session-badge-removal.html` for the mechanism, and note that the *name* (unlike the badge) is injected into the model's context each turn — if it is merely wrong, `/rename <something-truthful>` is the better fix.
+
+### 15. Recommended environment variable
 
 `CLAUDE_CODE_NO_FLICKER=1` is already included in the `env` block of the platform settings templates (`platform/linux/settings.json`, `platform/macos/settings.json`, `platform/windows/settings.json`), so a standard install via step 3 picks it up automatically — no manual step needed. This is the default behavior since Claude Code v2.1.89, but setting it explicitly future-proofs against the default ever flipping. It enables fullscreen rendering and the in-app `Ctrl+O → [` history-dump trick.
 
 See `docs/scrollback.md` in this repo for the full explanation of fullscreen mode, scrollback behavior, and the `Ctrl+Home` / `Ctrl+O` navigation workflow.
 
-### 15. Apply VS Code settings + keybindings
+### 16. Apply VS Code settings + keybindings
 
 This step **applies** recommended VS Code settings and keybindings to the user's local config — it doesn't just document them. Skip this step if Claude Code isn't being used via VS Code's integrated terminal.
 
@@ -325,7 +338,7 @@ Bindings to add **only on Windows/Linux**:
 
 After writing both files, tell the user: "VS Code settings + keybindings applied. **Reload the VS Code window** (`Cmd/Ctrl+Shift+P` → 'Developer: Reload Window') for them to take effect."
 
-### 16. Verify
+### 17. Verify
 
 Run sync_conversations.py --scan one more time to confirm everything works.
 
