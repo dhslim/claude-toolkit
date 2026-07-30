@@ -51,11 +51,29 @@
 <p class="lead"><code>/rename</code> has no inverse. The name lives in <b>three</b> stores, not one — and the third only exists for some sessions, which is why two correct-looking attempts failed silently.</p>
 
 <h2>Use it</h2>
-<pre>python session_unname.py --list              # which sessions carry a name
-python session_unname.py &lt;sid&gt; --analyze     # report all 3 stores, write nothing
-python session_unname.py &lt;sid&gt;               # revert (refuses if the session is live)
+<pre>python session_unname.py                     # the guided report (same as --plan)
+python session_unname.py --plan [sid...]     # what is named, what to exit, gate, clear, resume
+python session_unname.py --verify [sid...]   # THE GATE: exit 0 only if provably dead
+python session_unname.py &lt;sid&gt; --analyze     # one session, all 3 stores, writes nothing
+python session_unname.py &lt;sid&gt; --yes         # clear it (refuses while live)
 claude --resume &lt;sid&gt;                        # bring it back, now unnamed</pre>
-<p class="small">Or the one-step wrapper: <code>/unbadge</code> (skill) → lists, analyzes, confirms, reverts.</p>
+<p class="small">Or drive the whole thing with <code>/unbadge</code> (skill), which walks the five stages and refuses to clear anything until the gate passes.</p>
+
+<h2>The guided pipeline (/unbadge)</h2>
+<p>Removing a name is a <b>gated</b> process, because the two hard constraints are procedural, not textual: the target must be exited <i>before</i> the edit (a named session re-stamps its transcript every turn), and resumed <i>after</i> it (the badge is drawn from state loaded at startup, so a live process will not drop it mid-session).</p>
+<div class="box">
+<div class="flow">1  LIST      --plan          which sessions carry an explicit name (2-store vs 3-store)
+2  DETECT    --plan          which live pids hold them: pid, image, badge text, cwd, state
+3  INSTRUCT  --plan          exit each one (interactive -> /exit; daemon -> claude agents)
+             ---- user acts: exits those sessions ----
+4a GATE      --verify        exit 0 = provably dead - 1 = still live - 2 = UNKNOWN, refuse
+4b CLEAR     &lt;sid&gt; --yes     only on exit 0; backs up, strips, verifies
+5  RESTORE   claude --resume &lt;sid&gt;   badge clears on the fresh load</div>
+</div>
+<p class="small">The gate <b>fails closed</b>. Two conditions make it refuse rather than approve: the process probe failing (no process list = liveness unknown), and any <b>unreadable session record</b> — a corrupt or mid-write record could belong to a live session, so treating it as absent would produce a false "all clear". Both return exit 2.</p>
+<div class="box warn">
+<b class="k">Pid alone is not a liveness marker.</b> The OS recycles pids, so a dead session's pid can be reused by an unrelated process and read as "still live". The tool matches the <b>running image name</b> against the record and flags <code>image is not claude</code> as a probable recycled pid — visible rather than silently trusted.
+</div>
 
 <h2>The three stores</h2>
 <table>
