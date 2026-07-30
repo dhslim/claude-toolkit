@@ -132,16 +132,23 @@ Only sessions <b>born as background jobs</b> carry a jobs entry (<code>backend=d
 </div>
 <p class="small">Why it beat the two-store procedure twice: the process kept being killed and the transcript kept being cleaned, while the supervisor calmly re-applied the name it was holding for exactly that purpose. That wasn't a bug — it was a component doing its job.</p>
 
-<h2><code>nameSource</code> has three values, not two</h2>
+<h2><code>nameSource</code> — <code>derived</code> is the only no-badge state</h2>
+<p>The axis is <b>did anyone actually name it, or did the system just label it</b> — not explicit-vs-everything-else. A model-generated name (<code>auto</code>) is still a real name and still badges.</p>
 <table>
-  <tr><th>Value</th><th>Meaning</th><th>Badge?</th></tr>
-  <tr><td><code>&lt;absent&gt;</code></td><td>explicit name (in the session <i>record</i>, an explicit name omits the key)</td><td class="no">badge shown</td></tr>
-  <tr><td><code>"user"</code></td><td>explicit <code>/rename</code>, as recorded in <i>job state</i></td><td class="no">badge shown</td></tr>
-  <tr><td><code>"auto"</code> / <code>"derived"</code></td><td>auto-generated — <code>slug(cwd)</code> + short suffix</td><td class="ok">no badge</td></tr>
+  <tr><th>Value</th><th>Who named it</th><th>Example</th><th>Badge?</th></tr>
+  <tr><td><code>&lt;absent&gt;</code></td><td>explicit name — in the session <i>record</i> an explicit name <b>omits the key entirely</b></td><td>—</td><td class="no">badge shown</td></tr>
+  <tr><td><code>"user"</code></td><td><b>you</b> — typed <code>/rename &lt;name&gt;</code></td><td><code>test2</code></td><td class="no">badge shown</td></tr>
+  <tr><td><code>"hook"</code></td><td>a hook set it</td><td>—</td><td class="no">badge shown</td></tr>
+  <tr><td><code>"auto"</code></td><td>the <b>model</b> — bare <code>/rename</code>, name generated for you</td><td><code>youmap mongodb context</code></td><td class="no">badge shown</td></tr>
+  <tr><td><code>"derived"</code></td><td><b>nobody</b> — mechanical <code>slug(cwd)</code> + short suffix</td><td><code>youmap-6e</code></td><td class="ok">NO badge</td></tr>
 </table>
+<div class="box">
+<b class="k">The two stores use opposite conventions.</b> In the <b>session record</b>, an explicit name is signalled by <i>omission</i> — <code>{name}</code> with no <code>nameSource</code> key, versus <code>{name, nameSource:"derived"}</code> when auto-labelled. The presence or absence of that single key was the only structural difference between a badged and unbadged record in the original experiment. <b>Job state does the reverse</b>, writing the value out positively (<code>"user"</code> / <code>"auto"</code>) — which is why it is the only place the positive value is ever recorded.
+</div>
+<p class="small">Target end state = exactly what a fresh session looks like: <code>name=&lt;slug&gt;-&lt;xx&gt;</code>, <code>nameSource=derived</code>, zero transcript name entries, no <code>name</code>/<code>nameSource</code> in job state.</p>
 <p class="small">Target end state = exactly what a fresh session looks like: <code>name=&lt;slug&gt;-&lt;xx&gt;</code>, <code>nameSource=derived</code>, zero transcript name entries, no <code>name</code>/<code>nameSource</code> in job state.</p>
 
-<h2>Order matters — two guards the script enforces</h2>
+<h2>Order matters — three guards the script enforces</h2>
 <div class="box warn">
 <ul style="margin:0">
   <li><b class="k">Exit first, and judge liveness by PID.</b> Not by absence of a session record — records are per-pid and deleted on exit, so a record can be gone while a <i>different</i> pid still holds the session. The script checks live pids <i>and</i> refuses if the transcript was written in the last 20s (a live session with no record). <code>--force</code> overrides.</li>
