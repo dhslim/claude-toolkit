@@ -96,6 +96,32 @@ claude --resume &lt;sid&gt;                        # bring it back, now unnamed<
 <pre>{"type":"custom-title","customTitle":"&lt;name&gt;","sessionId":"..."}
 {"type":"agent-name","agentName":"&lt;name&gt;","sessionId":"..."}</pre>
 
+<h3>custom-title vs agent-name — identity vs label</h3>
+<p>These are <b>two independent session properties</b>, not two spellings of one. Each has its own backing field and writer (<code>currentSessionTitle</code> / <code>saveCustomTitle</code>, <code>currentSessionAgentName</code> / <code>saveAgentName</code>) and is read into a different map. The single setter that writes both makes the distinction explicit — note the conditional:</p>
+<pre>async function setName(name, source) {          // source: "user" | "hook" | "auto" | ...
+  if (source === "user" || source === "hook")
+       await saveCustomTitle(sid, name, …);     // custom-title: ONLY when explicit
+  else setInMemoryTitle(sid, name);             // otherwise never hits disk
+  if (bridgeSessionId) updateBridgeSessionTitle(bridgeSessionId, name, …);
+  await saveAgentName(sid, name, …);            // agent-name: ALWAYS
+}</pre>
+<table>
+  <tr><th></th><th><code>agent-name</code></th><th><code>custom-title</code></th></tr>
+  <tr><td>answers</td><td>"who is this <b>agent</b>?"</td><td>"what is this <b>conversation</b> called?"</td></tr>
+  <tr><td>written when</td><td>any name is set (user / auto / derived)</td><td><b>only</b> an explicit user or hook name</td></tr>
+  <tr><td>family</td><td><code>agent-color</code>, <code>agent-setting</code>, and the daemon's <code>name</code>+<code>nameSource</code></td><td>pushed to the bridge session title (the remote / mobile session list)</td></tr>
+  <tr><td>drives</td><td><b>the badge</b></td><td>the conversation title</td></tr>
+  <tr><td>observed on disk</td><td><b>123</b></td><td><b>4</b></td></tr>
+</table>
+<p class="small">So <code>agent-name</code> is the live mechanism and <code>custom-title</code> is nearly vestigial — but both are stripped, because the tab-title reader accepts <i>either</i> type and simply takes the last one (preferring <code>customTitle</code> within an entry). A <code>1 / 1</code> split means the name was typed as <code>/rename &lt;name&gt;</code>; <code>0 / 1</code> means bare <code>/rename</code> let the model generate it (<code>querySource: "rename_generate_name"</code> — "Session name generation cannot use tools"), which is where <code>nameSource: "auto"</code> comes from.</p>
+
+<h3>Siblings deliberately NOT stripped</h3>
+<table>
+  <tr><th>type</th><th>on disk</th><th>why it is left alone</th></tr>
+  <tr><td><code>ai-title</code></td><td>2460</td><td>The auto-generated description of the work. Untouched on purpose — it is why the ideal end state is "empty badge, tab still describing the session".</td></tr>
+  <tr><td><code>agent-color</code></td><td>3 (<code>orange</code>, <code>red</code>)</td><td>The badge colour is its own metadata type. Harmless once the name is gone (nothing left to paint), but it survives the clear — a later <code>/rename</code> of the same session could pick the stale colour back up. The badge is not always cyan.</td></tr>
+</table>
+
 <p>And the respawn line that re-applies it from store 3 — the mechanism behind the "it came back" failure:</p>
 <pre>...c.name &amp;&amp; { name: c.name, nameSource: c.nameSource },</pre>
 
