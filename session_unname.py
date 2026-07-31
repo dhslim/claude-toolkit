@@ -76,6 +76,7 @@ CAVEAT
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
 import shutil
@@ -99,6 +100,41 @@ JOB_NAME_KEYS = ('name', 'nameSource')
 # Windows: keep console-app children (tasklist) from flashing a console window
 # when this runs under pythonw.exe, which has no console of its own.
 _NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0) if sys.platform == 'win32' else 0
+
+
+def _utf8_stream(stream):
+    """Pin one output stream to UTF-8, replacing anything it still cannot encode.
+
+    THE GATE MUST NOT BE DECIDED BY A CODEPAGE. /unbadge reads this script's EXIT
+    CODE as its verdict (0 = provably dead, safe to clear; 1 = live/not safe;
+    2 = liveness UNKNOWN, refuse). The verdict lines carry em dashes, and session
+    names and cwds can be Korean, so on a cp949 console — which is what a plain
+    PowerShell or cmd gives on this machine, and what the skill's documented
+    command runs with, since it sets no PYTHONUTF8 — every print() was one
+    UnicodeEncodeError away from replacing the answer:
+
+        PYTHONIOENCODING=cp949 python session_unname.py --verify 060df14e
+        UnicodeEncodeError: 'cp949' codec can't encode character '\\u2014'
+        EXIT=1
+
+    An unhandled encode error exits 1, which reads as "still live, refuse" — it
+    happened to degrade toward safety, but the number came from the console
+    encoding rather than from session state, and a PASS could not be reported at
+    all. errors='replace' guarantees output can never raise, so the exit code is
+    always the one the gate logic chose. reconfigure() is the 3.7+ path; the
+    TextIOWrapper rebuild covers a stream without it; a stream with neither is
+    left alone rather than crashing the tool over I/O setup.
+    """
+    if hasattr(stream, 'reconfigure'):
+        stream.reconfigure(encoding='utf-8', errors='replace')
+        return stream
+    if hasattr(stream, 'buffer'):
+        return io.TextIOWrapper(stream.buffer, encoding='utf-8', errors='replace')
+    return stream
+
+
+sys.stdout = _utf8_stream(sys.stdout)
+sys.stderr = _utf8_stream(sys.stderr)
 
 
 # ---------- resolution ----------
