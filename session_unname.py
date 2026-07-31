@@ -217,17 +217,22 @@ def read_session_records() -> tuple[list[dict], list[Path]]:
     return out, bad
 
 
-def holders_of(sid: str, pmap=None, records=None) -> list[dict]:
+def holders_of(sid: str, pmap, records) -> list[dict]:
     """Live processes whose session record claims this session id.
 
     Each holder carries enough context to FIND the window: cwd, badge name, kind,
     status, pid — plus the running image name so pid reuse is visible rather than
     silently trusted. pmap=None means liveness could not be determined; holders are
     returned with alive='unknown' so the caller can refuse instead of assuming dead.
+
+    Both arguments are REQUIRED on purpose. They used to default to None, and the
+    records fallback was `read_session_records()[0]` — that `[0]` dropped the
+    unreadable list on the floor, so every caller that omitted it silently judged
+    liveness from a subset of the records. Omitting one is now a TypeError at the
+    call site instead of a false "no live pid claims this session".
     """
-    recs = records if records is not None else read_session_records()[0]
     found = []
-    for obj in recs:
+    for obj in records:
         if obj.get('sessionId') != sid:
             continue
         pid = obj.get('pid')
@@ -584,9 +589,17 @@ def cmd_list() -> int:
 
 
 def cmd_report(transcript: Path, sid: str) -> dict:
+    """All three stores plus liveness — and how much that liveness can be trusted.
+
+    Probes ONCE and hands both inputs down, because this is the report the
+    DESTRUCTIVE path reads: it needs the same two fail-closed signals the gate has —
+    the process map (None = probe failed) and the unreadable-record list.
+    """
     info = scan_transcript(transcript)
     jp, state = read_job_state(sid)
-    holders = holders_of(sid)
+    pmap = process_map()
+    records, bad_records = read_session_records()
+    holders = holders_of(sid, pmap=pmap, records=records)
     age = seconds_since_write(transcript)
 
     print(f'session      {sid}')
@@ -614,6 +627,13 @@ def cmd_report(transcript: Path, sid: str) -> dict:
               f'(all others preserved)')
         print('             -> 3 stores; DAEMON-BACKED, store 3 is required')
 
+    if bad_records:
+        print(f'records      {len(bad_records)} UNREADABLE — any of them could be a '
+              f'live session, so')
+        print('             the liveness line below is NOT trustworthy:')
+        for b in bad_records:
+            print(f'             {b}')
+
     if holders:
         for h in holders:
             if h['alive'] == 'unknown':
@@ -624,19 +644,50 @@ def cmd_report(transcript: Path, sid: str) -> dict:
                 if h['suspect_reuse']:
                     print('             ^ image is NOT claude: likely a REUSED pid, '
                           'not a live session')
+    elif pmap is None:
+        print('LIVE         UNKNOWN — could not probe running processes; no record '
+              'claims')
+        print('             this session, but that is not evidence while the probe '
+              'is blind')
     else:
         print('LIVE         no live pid claims this session')
-    return {'info': info, 'jp': jp, 'state': state, 'holders': holders, 'age': age}
+    return {'info': info, 'jp': jp, 'state': state, 'holders': holders, 'age': age,
+            'pmap': pmap, 'bad_records': bad_records}
 
 
 def cmd_revert(transcript: Path, sid: str, args) -> int:
+    """The destructive step. Exit codes speak the gate's vocabulary:
+    1 = live / not safe yet, 2 = liveness UNKNOWN, refuse."""
     print('=== before ===')
     st = cmd_report(transcript, sid)
     holders, info, state, jp = st['holders'], st['info'], st['state'], st['jp']
+    pmap, bad_records = st['pmap'], st['bad_records']
 
     if info['real'] == 0 and not (state and any(k in state for k in JOB_NAME_KEYS)):
         print('\nNothing to do: no explicit name in any store (badge already clear).')
         return 0
+
+    # Liveness must be TRUSTWORTHY before "no live pid claims this session" is worth
+    # anything, and two conditions make it worthless: a session record that could not
+    # be parsed (it could be THIS session's own, live and re-stamping) and a process
+    # probe that failed (it knows nothing about any pid). --verify fails closed on
+    # both with exit 2; so must the command that actually edits files.
+    if not args.force:
+        if bad_records:
+            print(f'\nREFUSING: {len(bad_records)} session record(s) could not be '
+                  f'parsed, so liveness is UNKNOWN:', file=sys.stderr)
+            for b in bad_records:
+                print(f'  {b}', file=sys.stderr)
+            print('Any of them could be this session, held by a live pid that never '
+                  'shows up above.\nRepair or remove them, then re-run. '
+                  '(--force overrides.)', file=sys.stderr)
+            return 2
+        if pmap is None:
+            print('\nREFUSING: could not probe running processes — liveness is '
+                  'UNKNOWN.', file=sys.stderr)
+            print('Nothing above proves this session is dead. Fix the process probe '
+                  '(tasklist/ps), then re-run. (--force overrides.)', file=sys.stderr)
+            return 2
 
     if holders and not args.force:
         pids = ', '.join(str(h['pid']) for h in holders)
@@ -644,13 +695,13 @@ def cmd_revert(transcript: Path, sid: str, args) -> int:
         print('A named session re-stamps the transcript every turn, so a strip now '
               'would last seconds.\n/exit that session first, then re-run. '
               '(--force overrides.)', file=sys.stderr)
-        return 2
+        return 1
     if not holders and st['age'] < 20 and not args.force:
         print(f'\nREFUSING: transcript was written {st["age"]:.0f}s ago — the session '
               'looks active even though no record claims it.', file=sys.stderr)
         print('Records are per-pid and deleted on exit, so a live session can have no '
               'record. Wait, or pass --force.', file=sys.stderr)
-        return 2
+        return 1
 
     if not args.yes:
         print(f'\nAbout to strip {info["real"]} transcript entr(y/ies)'
