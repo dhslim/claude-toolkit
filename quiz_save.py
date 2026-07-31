@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Save generated quiz JSON from stdin to MongoDB."""
 
+import io
 import json
 import os
 import random
@@ -21,6 +22,42 @@ LABELS = ['A', 'B', 'C', 'D']
 # (A blanket reject would discard the 5 good questions too and pay a full
 # regeneration; truncation preserves them while a loud warning keeps drift visible.)
 EXPECTED_QUESTION_COUNT = int(os.environ.get('QUIZ_QUESTION_COUNT', '5'))
+
+
+def _rewrap(stream, encoding, errors):
+    """Pin one text stream to `encoding`, whatever the console/locale says.
+
+    reconfigure() is the 3.7+ way; the TextIOWrapper rebuild is the fallback for
+    a stream that lacks it (an already-wrapped or redirected stream). A stream
+    with neither is left alone rather than crashing the script over I/O setup.
+    """
+    if hasattr(stream, 'reconfigure'):
+        stream.reconfigure(encoding=encoding, errors=errors)
+        return stream
+    if hasattr(stream, 'buffer'):
+        return io.TextIOWrapper(stream.buffer, encoding=encoding, errors=errors)
+    return stream
+
+
+def force_utf8_io():
+    """Make this script's own stdin/stdout/stderr UTF-8, not the locale's codec.
+
+    The payload is a Korean-heavy quiz (real questions have contained
+    진료묶음버튼 / 예약전용) piped in as JSON, and it is echoed back out with
+    ensure_ascii=False. On this box locale.getpreferredencoding(False) is cp949,
+    so an unconfigured stdin decodes those UTF-8 bytes as cp949 mojibake — and
+    that corruption is what gets stored in MongoDB, permanently. Callers have
+    been working around it by exporting PYTHONIOENCODING=utf-8, which every
+    future caller then has to remember; the script now guarantees it for itself.
+
+    stdin is STRICT on purpose: a payload that is not UTF-8 must fail loudly
+    rather than be silently persisted with U+FFFD holes punched through the
+    question text. stdout/stderr use errors='replace' so reporting a result — or
+    a Korean question in an error message — can never crash the save.
+    """
+    sys.stdin = _rewrap(sys.stdin, 'utf-8', 'strict')
+    sys.stdout = _rewrap(sys.stdout, 'utf-8', 'replace')
+    sys.stderr = _rewrap(sys.stderr, 'utf-8', 'replace')
 
 
 def normalize_and_validate(questions):
@@ -86,7 +123,13 @@ def shuffle_choices(question):
 
 
 def main():
-    data = sys.stdin.read().strip()
+    force_utf8_io()
+
+    try:
+        data = sys.stdin.read().strip()
+    except UnicodeDecodeError as e:
+        print(f'Quiz payload is not valid UTF-8, nothing saved: {e}', file=sys.stderr)
+        sys.exit(1)
     if not data:
         print('No quiz data provided on stdin.', file=sys.stderr)
         sys.exit(1)
