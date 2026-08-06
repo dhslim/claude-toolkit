@@ -4,7 +4,9 @@
   },
   "env": {
     "CLAUDE_CODE_NO_FLICKER": "1",
-    "CLAUDE_CODE_EFFORT_LEVEL": "max"
+    "CLAUDE_CODE_EFFORT_LEVEL": "max",
+    "EDITOR": "{{REPO_DIR}}/open_in_code.cmd",
+    "VISUAL": "{{REPO_DIR}}/open_in_code.cmd"
   },
   "hooks": {
     "Stop": [
