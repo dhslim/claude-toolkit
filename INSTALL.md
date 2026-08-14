@@ -112,10 +112,14 @@ Add the following aliases if not already present.
 
 macOS/Linux — append to ~/.zshrc or ~/.bashrc:
 
+The `claude` alias forces every launch into **ultracode** (xhigh effort + dynamic workflow orchestration), which is otherwise session-only and resets on each `claude -c`. `ultracode` is a valid (undocumented) `--effort` launch level; `claude -c`, `cfork`, and `cread` all inherit it. Requires Claude Code ≥ 2.1.203.
+
 ```bash
 # Claude Code fork shortcuts
 alias cfork='claude -r --fork-session'   # pick a session to fork-resume
 alias cread='claude -c --fork-session'   # fork-continue latest session (for reading)
+# Always launch in ultracode (xhigh + dynamic workflow orchestration)
+alias claude='claude --effort ultracode'
 ```
 
 Windows (Git Bash) — append to ~/.bashrc:
@@ -124,6 +128,7 @@ Windows (Git Bash) — append to ~/.bashrc:
 # Claude Code fork shortcuts
 alias cfork='claude -r --fork-session'
 alias cread='claude -c --fork-session'
+alias claude='claude --effort ultracode'
 ```
 
 Windows (PowerShell) — append to $PROFILE:
@@ -132,6 +137,7 @@ Windows (PowerShell) — append to $PROFILE:
 # Claude Code fork shortcuts
 function cfork { claude -r --fork-session }
 function cread { claude -c --fork-session }
+function claude { claude.exe --effort ultracode @args }
 ```
 
 ### 9. Install /mgo skill
