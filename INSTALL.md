@@ -83,7 +83,8 @@ Use the absolute path to this repo's directory and the venv python path (platfor
 - Scripts: `<absolute path to this repo>` (Python, venv at `.venv/`)
 - Connection: uses `MONGODB_URI` from `<absolute path to this repo>/.env`
 - Database: `conversation-warehouse`
-- To query: `cd` to the scripts directory and use the venv python with `from _shared import get_db; client, db = get_db()` (returns tuple, not just db).
+- To query: invoke the venv python **by absolute path** — `<absolute path to this repo>/.venv/Scripts/python.exe` on Windows, `<absolute path to this repo>/.venv/bin/python` on macOS/Linux — with `from _shared import get_db; client, db = get_db()` (returns tuple, not just db).
+- Never use bare `python` for these scripts. The toolkit's dependencies (pymongo among them) live only in that venv, and terminal auto-activation is not guaranteed — it is off by default in a Claude-Code-spawned process, and may be disabled per-workspace. Bare `python` gets the system interpreter and fails with `ModuleNotFoundError`.
 - Schema and collections are documented in the repo's README.md.
 ```
 
