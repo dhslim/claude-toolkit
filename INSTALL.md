@@ -141,7 +141,46 @@ function cread { claude -c --fork-session }
 function claude { claude.exe --effort ultracode @args }
 ```
 
-### 9. Install /mgo skill
+### 9. Install the claude_proxy wrapper (optional)
+
+`claude_proxy.py` sits between Claude Code and the Anthropic API and applies a
+sliding-window trim to long conversations. It is not wired up by any step above —
+without this step you get the whole toolkit and no proxy, which is a valid setup.
+
+Run the installer **with the venv python from step 2**, by absolute path:
+
+```bash
+# macOS/Linux
+.venv/bin/python install_claude_proxy.py
+
+# Windows
+.venv\Scripts\python.exe install_claude_proxy.py
+```
+
+Any interpreter will actually do — the installer is stdlib-only and derives the
+proxy's interpreter from its own location on disk, not from whatever is running
+it. Using the venv python is simply the habit worth keeping.
+
+The installer refuses to proceed if the venv from step 2 is missing, or if that
+venv cannot import `httpx`, `fastapi` and `uvicorn`. Both refusals name the cause
+and exit 1 rather than writing a wrapper that would fail silently at launch.
+
+**This step rewrites the `claude` definition from step 8.** The installer writes
+its own `claude` shell function — one that starts the proxy on port 9999 if it is
+not already listening, then calls the real binary. Being defined later in the
+file, it shadows step 8's alias. Merge the ultracode flag into the wrapper's call
+to the real binary so it is not lost:
+
+```powershell
+& $real.Source --effort ultracode @args   # ultracode merged into the proxy call
+```
+
+Verify with `(Get-Command claude).Definition` (PowerShell) or `type claude`
+(bash/zsh): you should see the proxy wrapper, and `--effort ultracode` inside it.
+
+To remove it later: `.venv/Scripts/python.exe install_claude_proxy.py --uninstall`
+
+### 10. Install /mgo skill
 
 Copy the skill template from this repo to the global skills directory:
 
@@ -152,7 +191,7 @@ Copy the skill template from this repo to the global skills directory:
 
 This enables the `/mgo` slash command in Claude Code (e.g. `/mgo 2h` to see last 2 hours of activity).
 
-### 10. Install /transplant skill
+### 11. Install /transplant skill
 
 Copy the skill template from this repo to the global skills directory:
 
@@ -163,7 +202,7 @@ Copy the skill template from this repo to the global skills directory:
 
 This enables the `/transplant` slash command in Claude Code, which clones a session JSONL from one working directory into another (e.g. `/transplant <source.jsonl> <target-dir>`). The script lives at `session_transplant.py` in this repo.
 
-### 11. Install /pushback skill
+### 12. Install /pushback skill
 
 Copy the skill template from this repo to the global skills directory:
 
@@ -172,7 +211,7 @@ Copy the skill template from this repo to the global skills directory:
 
 This enables the `/pushback` slash command in Claude Code. Running `/pushback <message>` engages critically with that specific claim or proposal; running `/pushback` alone re-examines the assistant's previous response and surfaces its weakest points. Designed to counteract the default helpful-assistant tendency to nod along when it should challenge.
 
-### 12. Install /grill-me skill
+### 13. Install /grill-me skill
 
 Copy the skill template from this repo to the global skills directory:
 
@@ -181,7 +220,7 @@ Copy the skill template from this repo to the global skills directory:
 
 This enables the `/grill-me` slash command in Claude Code, an interactive quiz where Claude grills you on a topic, file, PR, diff, commit, or concept to test and deepen your understanding — optionally calibrated with a difficulty/mode hint (`hard`, `brutal`, `interview`, `quick`, `rapid fire`). E.g. `/grill-me this PR`, `/grill-me sync_conversations.py hard`, `/grill-me "MongoDB write concern" interview`. Sibling to `/pushback`: `/pushback` argues against *your* claim in one response; `/grill-me` quizzes *you* across many turns.
 
-### 13. Install /digest skill
+### 14. Install /digest skill
 
 Copy the skill template from this repo to the global skills directory:
 
@@ -192,7 +231,7 @@ Copy the skill template from this repo to the global skills directory:
 
 This enables the `/digest <url>` slash command, which fetches and summarizes any supported social/web post (YouTube, Instagram, Threads, Reddit, Substack/blogs/news) via `digest.py` and the `fetchers/` package. Its extra dependencies (`yt-dlp`, `instaloader`) are already in requirements.txt, so step 2 covers them.
 
-### 14. Install /unbadge skill
+### 15. Install /unbadge skill
 
 Copy the skill template from this repo to the global skills directory:
 
@@ -205,13 +244,13 @@ This enables the `/unbadge` slash command, which removes a session's name to cle
 
 The name lives in three places (session record, transcript, and — for daemon-backed sessions only — job state); missing the third is why the badge reappears. The script refuses to act on a live session, backs up every file it edits, and removes only the two name keys from job state. See `docs/session-badge-removal.html` for the mechanism, and note that the *name* (unlike the badge) is injected into the model's context each turn — if it is merely wrong, `/rename <something-truthful>` is the better fix.
 
-### 15. Recommended environment variable
+### 16. Recommended environment variable
 
-`CLAUDE_CODE_NO_FLICKER=1` is already included in the `env` block of the platform settings templates (`platform/linux/settings.json`, `platform/macos/settings.json`, `platform/windows/settings.json`), so a standard install via step 3 picks it up automatically — no manual step needed. This is the default behavior since Claude Code v2.1.89, but setting it explicitly future-proofs against the default ever flipping. It enables fullscreen rendering and the in-app `Ctrl+O → [` history-dump trick.
+`CLAUDE_CODE_NO_FLICKER=1` is already included in the `env` block of the platform settings templates (`platform/linux/settings.json`, `platform/macos/settings.json`, `platform/windows/settings.json`), so a standard install via step 5 picks it up automatically — no manual step needed. This is the default behavior since Claude Code v2.1.89, but setting it explicitly future-proofs against the default ever flipping. It enables fullscreen rendering and the in-app `Ctrl+O → [` history-dump trick.
 
 See `docs/scrollback.md` in this repo for the full explanation of fullscreen mode, scrollback behavior, and the `Ctrl+Home` / `Ctrl+O` navigation workflow.
 
-### 16. Apply VS Code settings + keybindings
+### 17. Apply VS Code settings + keybindings
 
 This step **applies** recommended VS Code settings and keybindings to the user's local config — it doesn't just document them. Skip this step if Claude Code isn't being used via VS Code's integrated terminal.
 
@@ -345,7 +384,7 @@ Bindings to add **only on Windows/Linux**:
 
 After writing both files, tell the user: "VS Code settings + keybindings applied. **Reload the VS Code window** (`Cmd/Ctrl+Shift+P` → 'Developer: Reload Window') for them to take effect."
 
-### 17. Verify
+### 18. Verify
 
 Run sync_conversations.py --scan one more time to confirm everything works.
 
