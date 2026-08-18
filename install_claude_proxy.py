@@ -34,13 +34,31 @@ from __future__ import annotations
 import os
 import platform
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
 
 
-PROXY_PY = (Path(__file__).resolve().parent / "claude_proxy.py").as_posix()
-PYTHON_BIN = sys.executable
+_ROOT = Path(__file__).resolve().parent
+
+PROXY_PY = (_ROOT / "claude_proxy.py").as_posix()
+
+# Derive the interpreter from where this file LIVES, never from sys.executable.
+# sys.executable answers "what launched me?" — a fact about one terminal at one
+# moment — and this installer's whole job is to write a PERMANENT wrapper. Using
+# it froze `dentweb-migration/.venv/python.exe` into both PowerShell profiles
+# here, because the installer happened to be run from that repo's shell: a
+# claude-toolkit script launched by an unrelated project's interpreter, for every
+# `claude` invocation on the machine, until someone noticed.
+#
+# Probing for the file (rather than branching on os.name) picks the right layout
+# — Windows Scripts/, POSIX bin/ — and refuses to freeze a path that isn't there.
+_VENV_CANDIDATES = (
+    _ROOT / ".venv" / "Scripts" / "python.exe",   # Windows
+    _ROOT / ".venv" / "bin" / "python",           # macOS / Linux
+)
+PYTHON_BIN = next((str(p) for p in _VENV_CANDIDATES if p.is_file()), None)
 
 WRAPPER_BEGIN = "# >>> claude_proxy wrapper >>>"
 WRAPPER_END = "# <<< claude_proxy wrapper <<<"
@@ -216,18 +234,35 @@ def preflight_check_deps() -> None:
     """Verify claude_proxy's runtime dependencies are importable before we
     touch the shell rc file. A half-installed wrapper that points at a
     proxy that can't start is worse than a clear upfront error.
+
+    The imports must be probed in PYTHON_BIN — the interpreter about to be
+    written into the wrapper — not in this process. Checking `__import__` here
+    tests whichever interpreter happens to be running the installer, which is
+    tautologically the one that passes; a wrong-but-capable interpreter sails
+    through a guard meant to catch exactly that.
     """
-    missing: list[str] = []
-    for mod in ("httpx", "fastapi", "uvicorn"):
-        try:
-            __import__(mod)
-        except ImportError:
-            missing.append(mod)
-    if missing:
-        req_path = Path(__file__).resolve().parent / "requirements.txt"
-        print("ERROR: claude_proxy dependencies not installed in this Python:", file=sys.stderr)
-        print(f"  missing: {', '.join(missing)}", file=sys.stderr)
+    req_path = _ROOT / "requirements.txt"
+
+    if PYTHON_BIN is None:
+        print(f"ERROR: no virtualenv found under {_ROOT}", file=sys.stderr)
+        print("  looked for: .venv/Scripts/python.exe (Windows), .venv/bin/python (POSIX)",
+              file=sys.stderr)
+        print(file=sys.stderr)
+        print("Fix:", file=sys.stderr)
+        print(f'  cd "{_ROOT}" && python -m venv .venv', file=sys.stderr)
+        print(f'  .venv/Scripts/python.exe -m pip install -r "{req_path}"', file=sys.stderr)
+        sys.exit(1)
+
+    probe = subprocess.run(
+        [PYTHON_BIN, "-c", "import httpx, fastapi, uvicorn"],
+        capture_output=True, text=True,
+    )
+    if probe.returncode != 0:
+        print("ERROR: claude_proxy dependencies not installed in the target Python:",
+              file=sys.stderr)
         print(f"  python:  {PYTHON_BIN}", file=sys.stderr)
+        print(f"  error:   {probe.stderr.strip().splitlines()[-1] if probe.stderr.strip() else '(none)'}",
+              file=sys.stderr)
         print(file=sys.stderr)
         print("Fix:", file=sys.stderr)
         print(f'  "{PYTHON_BIN}" -m pip install -r "{req_path}"', file=sys.stderr)
