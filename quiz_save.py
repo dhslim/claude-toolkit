@@ -122,8 +122,48 @@ def shuffle_choices(question):
     return {**question, 'choices': new_choices, 'answer': LABELS[new_correct_idx]}
 
 
+def refuse_if_dismissed():
+    """Fail-closed guard: never write a quiz on a day already dismissed.
+
+    quiz_check.py's guard only protects the path that runs THROUGH the hook. An
+    agent acting on quiz instructions it already holds calls this script directly,
+    which had no guard at all — that is how a spurious quiz was saved on
+    2026-08-18, hours after the day was auto-dismissed. The dismissal can live
+    ONLY in the local marker file (the empty-day auto-dismiss never reaches
+    MongoDB), so the check must consult compute_status(), not MongoDB alone.
+
+    Deliberately does NOT block on "taken": multiple quizzes per day are a
+    documented, supported feature. Only a dismissal means "no quiz today".
+    """
+    if '--force' in sys.argv[1:]:
+        print('Note: --force given; skipping the dismissal check.', file=sys.stderr)
+        return
+
+    try:
+        from quiz_status import compute_status
+        verdict = compute_status()
+    except Exception as e:
+        # Fail CLOSED. A transient guard failure costs one blocked save, which
+        # --force recovers in seconds; failing open costs a bogus quiz persisted
+        # to MongoDB, which is exactly the bug this guard exists to prevent.
+        print(f'Dismissal check failed ({type(e).__name__}: {e}) - nothing saved.',
+              file=sys.stderr)
+        print('Re-run with --force if you are certain today is not dismissed.',
+              file=sys.stderr)
+        sys.exit(3)
+
+    if verdict.get('status') == 'dismissed':
+        print(f"Today's quiz was already dismissed "
+              f"(source: {verdict.get('source', '?')}) - nothing saved.",
+              file=sys.stderr)
+        print('Re-run with --force if you deliberately want an extra quiz today.',
+              file=sys.stderr)
+        sys.exit(3)
+
+
 def main():
     force_utf8_io()
+    refuse_if_dismissed()
 
     try:
         data = sys.stdin.read().strip()

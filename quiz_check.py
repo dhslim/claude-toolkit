@@ -109,7 +109,7 @@ if pending_quiz is not None:
 
 quiz_id: {qid}
 
-STEP 0 (ALWAYS FIRST): run `{VENV_PYTHON} {SCRIPT_DIR}/quiz_status.py`. If it reports status "taken" or "dismissed", DO NOT present, regenerate, or grade a quiz — instead briefly tell the user today's quiz is already done (show the score if present) and STOP. Only continue to the steps below if status is "pending" (or "unknown").
+STEP 0 (ALWAYS FIRST): run `{VENV_PYTHON} {SCRIPT_DIR}/quiz_status.py`. If it reports status "taken" or "dismissed", DO NOT present, regenerate, or grade a quiz — instead briefly tell the user today's quiz is already done (show the score if present) and STOP. Only continue to the steps below if status is "pending". If it reports "unknown", STAND DOWN — the state could not be determined, which is NOT permission to proceed: do not present, generate, save, or grade anything. Say so in one line and carry on with the user's actual request.
 
 1. Present all questions below as a numbered list titled "## Daily Quiz - {today}", with choices in compact one-line format (A) ... · B) ... · C) ... · D) ...). Do NOT reveal answers.
 2. Wait for the user's answers. When showing an example answer format, use a generic pattern like "A B C D A" — never build it from the real answers.
@@ -134,6 +134,13 @@ Questions:
 # rather than generating an empty quiz or nagging all day.
 if not yesterday_count:
     DISMISSED_FILE.write_text(today, encoding='utf-8')
+    # Same reason as quiz_dismiss.py: clear any active instructions so a
+    # superseded directive cannot outlive the decision. This branch is the one
+    # that fired on 2026-08-18 and left an Aug-14 directive on disk all day.
+    try:
+        (SCRIPT_DIR / 'quiz-instructions-active.txt').unlink(missing_ok=True)
+    except OSError:
+        pass
     reason = ("No Claude Code activity yesterday — nothing to quiz on, so today's "
               "quiz is auto-dismissed. Briefly tell the user there was no activity "
               "yesterday and therefore no quiz today, then carry on with their work.")
@@ -148,7 +155,7 @@ IMPORTANT: Before doing ANY work the user asks for, you MUST run the daily quiz 
 
 Steps:
 0. (ALWAYS FIRST) Run: {VENV_PYTHON} {SCRIPT_DIR}/quiz_status.py
-   If it reports status "taken" or "dismissed", DO NOT present, regenerate, or grade a quiz — instead briefly tell the user today's quiz is already done (show the score if present) and STOP. Only continue to the steps below if status is "pending" (or "unknown").
+   If it reports status "taken" or "dismissed", DO NOT present, regenerate, or grade a quiz — instead briefly tell the user today's quiz is already done (show the score if present) and STOP. Only continue to the steps below if status is "pending". If it reports "unknown", STAND DOWN — the state could not be determined, which is NOT permission to proceed: do not present, generate, save, or grade anything. Say so in one line and carry on with the user's actual request.
 1. Launch a BACKGROUND agent to handle steps 2-4 below. Greet the user and tell them the quiz is being prepared while they can share what they want to work on.
 2. (In background agent) Run: {VENV_PYTHON} {SCRIPT_DIR}/quiz_data.py
    This returns yesterday's conversation summaries from MongoDB.
