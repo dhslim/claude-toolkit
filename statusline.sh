@@ -96,6 +96,7 @@ GREEN='\033[32m'
 YELLOW='\033[33m'
 RED='\033[31m'
 MAGENTA='\033[35m'
+GREY='\033[90m'
 RESET='\033[0m'
 
 if [ "$PCT" -ge 90 ]; then BAR_COLOR="$RED"
@@ -158,6 +159,17 @@ if [ -n "$SEVEN_D" ]; then
         [ "$SREMAIN" -gt 0 ] && SEVEN_TTL=" ($((SREMAIN / 86400))d$((SREMAIN % 86400 / 3600))h)"
     fi
     LINE="$LINE | ${SD_COLOR}7d:${SD}%${SEVEN_TTL}${RESET}"
+fi
+
+# Session id (first 8 chars) -- the handle for finding this conversation in the
+# MongoDB warehouse. Claude Code mints it, uses it as the transcript filename, and
+# sync_conversations.py stores it as a UNIQUE indexed field (line 331), so the
+# value shown here is exactly what {"session_id": /^xxxxxxxx/} matches in Atlas.
+# Lives here rather than in the response stamp: the statusline already receives
+# session_id (see above), so this costs no extra I/O and adds nothing to the
+# UserPromptSubmit critical path.
+if [ -n "$SESSION_ID" ]; then
+    LINE="$LINE | ${GREY}#${SESSION_ID:0:8}${RESET}"
 fi
 
 echo -e "$LINE"
