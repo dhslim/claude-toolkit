@@ -23,7 +23,16 @@ import re
 import sys
 
 # Matches the required closing line, e.g.  `2026-06-20(Sat) 19:14:46 KST`
-STAMP_RE = re.compile(r"`\d{4}-\d{2}-\d{2}\([A-Za-z]{3}\) \d{2}:\d{2}:\d{2} KST`")
+# or, since a7d9817, with the session-id suffix:  `2026-06-20(Sat) 19:14:46 KST #3f95293f`
+#
+# The suffix is OPTIONAL on purpose. hook_inject_time.py emits the id only on a
+# best-effort basis — no stdin or a malformed payload degrades to a bare stamp —
+# so a pattern that REQUIRED it would block every turn on exactly the fallback
+# path the fallback exists to protect. Requiring a backtick right after "KST"
+# had the mirror-image bug: it rejected every stamp once the suffix appeared.
+STAMP_RE = re.compile(
+    r"`\d{4}-\d{2}-\d{2}\([A-Za-z]{3}\) \d{2}:\d{2}:\d{2} KST( #[0-9a-f]{8})?`"
+)
 
 REASON = (
     "Your response is missing its closing timestamp. Append the injected "
