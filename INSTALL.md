@@ -92,9 +92,9 @@ This second block pairs with the `hook_inject_time.py` UserPromptSubmit hook fro
 
 ```
 ## Response timestamp
-- Every turn, a UserPromptSubmit hook (`hook_inject_time.py`, wired via step 5's settings.json) injects a `<current-time>YYYY-MM-DD HH:MM:SS KST</current-time>` line plus a `<reminder>` into the prompt context. Injecting the reminder every turn (not only here) keeps it at the most-recent context position so it is far less likely to be dropped on long sessions.
+- Every turn, a UserPromptSubmit hook (`hook_inject_time.py`, wired via step 5's settings.json) injects a `<current-time>YYYY-MM-DD(Day) HH:MM:SS KST #abcd1234</current-time>` line plus a `<reminder>` into the prompt context. Injecting the reminder every turn (not only here) keeps it at the most-recent context position so it is far less likely to be dropped on long sessions.
 - A Stop hook (`hook_enforce_timestamp.py`, also wired in step 5) is the deterministic backstop: when Claude ends a turn without the closing stamp, it blocks the stop and makes Claude append it. It is loop-safe via `stop_hook_active` (at most one extra round-trip per turn) and uses Windows `python.exe` (not `pythonw.exe`) so Claude can read its block decision from stdout.
-- End EVERY response with that injected timestamp on its own final line, wrapped in single backticks so it renders as inline code (distinct color/font) in the transcript — like: `2026-06-07 09:10:09 KST`
+- End EVERY response with that injected timestamp on its own final line, wrapped in single backticks so it renders as inline code (distinct color/font) in the transcript — like: `2026-06-07(Fri) 09:10:09 KST #3f95293f`. The stamp also carries the session id's first 8 chars (`... KST #abcd1234`) so a turn can be located in the MongoDB warehouse: session_id is indexed, while a bare-timestamp regex is an unindexable collection scan that also matches any document merely quoting a stamp. The separator is ASCII `#` — a middle dot mojibakes under cp949, and `|` would need escaping inside a regex.
 - Use the injected value verbatim; never guess the wall-clock time. If no `<current-time>` was injected this turn, omit the stamp rather than inventing one.
 - No emoji anywhere in responses — terminals here use cp949/utf-8 and emoji corrupt the output.
 ```
