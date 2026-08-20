@@ -90,7 +90,9 @@ from pathlib import Path
 
 from bson import json_util
 
-from _shared import get_db
+from _shared import force_utf8_io, get_db
+
+force_utf8_io()
 
 MB = 1024 * 1024
 ARCHIVE_ROOT = Path.home() / '.claude' / 'warehouse-archive'
@@ -104,7 +106,7 @@ DEFAULT_HOT_MONTHS = 3
 
 
 def _blob(v) -> int:
-    return len(json.dumps(v, default=str).encode('utf-8'))
+    return len(json.dumps(v, default=str, ensure_ascii=False).encode('utf-8'))
 
 
 def _month_key(doc) -> str:

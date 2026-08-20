@@ -1,6 +1,7 @@
 """Shared utilities for conversation-warehouse scripts."""
 
 import os
+import sys
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -124,3 +125,34 @@ def count_quiz_messages(db, start_utc, end_utc):
     ]
     res = list(db['sessions'].aggregate(pipeline))
     return res[0]['n'] if res else 0
+
+
+def force_utf8_io(strict_stdin=False):
+    r"""Pin this process's stdout/stderr to UTF-8, whatever the locale says.
+
+    Any script whose output is consumed by an agent MUST call this before
+    printing non-ASCII, and pair it with json.dumps(..., ensure_ascii=False).
+    The two go together:
+
+      * ensure_ascii=True (the default) escapes Korean to \uXXXX. The text
+        survives a json.loads round-trip but is invisible to a plain grep --
+        a search for the escaped form returns 0 while the data sits right
+        there. mongo_recent.py shipped that way and a /mgo lookup was read as
+        "not synced" for a full day (4dafcb8).
+      * dropping the escapes without pinning stdout is WORSE: stdout here
+        follows the Windows console codepage (cp949 on this box), and cp949
+        bytes read back as UTF-8 become U+FFFD -- unsearchable AND unrecoverable.
+
+    cp949 is not the villain; it encodes Korean fine. The failure is a writer
+    and a reader disagreeing about which alphabet the bytes are in, so state it
+    explicitly instead of inheriting whatever the console happened to be.
+
+    errors='replace' on output so an unencodable stray can never crash a report.
+    strict_stdin=True leaves stdin STRICT, so a non-UTF-8 payload fails loudly
+    rather than being persisted with holes punched through it.
+    """
+    for stream, errors in ((sys.stdout, 'replace'), (sys.stderr, 'replace')):
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(encoding='utf-8', errors=errors)
+    if strict_stdin and hasattr(sys.stdin, 'reconfigure'):
+        sys.stdin.reconfigure(encoding='utf-8', errors='strict')

@@ -4,7 +4,9 @@
 import json
 import sys
 from pathlib import Path
-from _shared import today_kst
+from _shared import force_utf8_io, today_kst
+
+force_utf8_io()
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 TAKEN_FILE = SCRIPT_DIR / 'quiz-last-taken.txt'
@@ -125,7 +127,7 @@ Questions:
     instructions_file = SCRIPT_DIR / 'quiz-instructions-active.txt'
     instructions_file.write_text(instructions, encoding='utf-8')
     reason = f"Daily quiz pending. Read {instructions_file} and follow the instructions."
-    print(json.dumps({"decision": "block", "reason": reason}))
+    print(json.dumps({"decision": "block", "reason": reason}, ensure_ascii=False))
     raise SystemExit(0)
 
 # Empty-day auto-dismiss: if yesterday had no quiz-worthy activity, there is
@@ -144,7 +146,7 @@ if not yesterday_count:
     reason = ("No Claude Code activity yesterday — nothing to quiz on, so today's "
               "quiz is auto-dismissed. Briefly tell the user there was no activity "
               "yesterday and therefore no quiz today, then carry on with their work.")
-    print(json.dumps({"decision": "block", "reason": reason}))
+    print(json.dumps({"decision": "block", "reason": reason}, ensure_ascii=False))
     raise SystemExit(0)
 
 # No quiz exists for today yet — generate a fresh one.
@@ -195,4 +197,4 @@ instructions_file.write_text(instructions, encoding='utf-8')
 
 # Short reason for user-visible feedback, full details in file for Claude
 reason = f"Daily quiz pending. Read {instructions_file} and follow the instructions."
-print(json.dumps({"decision": "block", "reason": reason}))
+print(json.dumps({"decision": "block", "reason": reason}, ensure_ascii=False))

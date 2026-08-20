@@ -22,7 +22,7 @@ _NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0) if sys.platform == 'win3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from _shared import get_db, with_retry, to_kst_iso
+from _shared import force_utf8_io, get_db, to_kst_iso, with_retry
 
 CLAUDE_PROJECTS_DIR = Path.home() / '.claude' / 'projects'
 DEVICE = platform.node()
@@ -202,12 +202,12 @@ def sync_one_file(collection, file_path):
     # warehouse is for recent-activity recall (mgo, quiz, reports), so the recent
     # tail is what matters. NOTE: was [:0.8] (keep-oldest), which silently dropped
     # the most recent work from any >14MB session; now [-0.8:] (keep-newest).
-    estimated_size = len(json.dumps(doc, default=str).encode('utf-8'))
+    estimated_size = len(json.dumps(doc, default=str, ensure_ascii=False).encode('utf-8'))
     doc['truncated'] = False
     doc['truncated_dropped_oldest'] = 0
     if estimated_size > 14 * 1024 * 1024:
         before = len(doc['messages'])
-        while (len(json.dumps(doc, default=str).encode('utf-8')) > 14 * 1024 * 1024
+        while (len(json.dumps(doc, default=str, ensure_ascii=False).encode('utf-8')) > 14 * 1024 * 1024
                and len(doc['messages']) > 10):
             doc['messages'] = doc['messages'][-int(len(doc['messages']) * 0.8):]  # keep newest 80%
             doc['message_count'] = len(doc['messages'])
@@ -320,6 +320,7 @@ def read_stdin(timeout_ms=500):
 
 
 def main():
+    force_utf8_io()
     parser = argparse.ArgumentParser(description='Sync Claude conversations to MongoDB')
     parser.add_argument('--scan', action='store_true', help='Full scan mode')
     parser.add_argument('--file', dest='file_path', help='Sync a single file')

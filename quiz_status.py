@@ -30,7 +30,7 @@ import json
 import sys
 from pathlib import Path
 
-from _shared import today_kst, get_db_fast
+from _shared import force_utf8_io, get_db_fast, today_kst
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 TAKEN_FILE = SCRIPT_DIR / 'quiz-last-taken.txt'
@@ -125,7 +125,8 @@ def compute_status():
 
 
 def main():
-    print(json.dumps(compute_status()))
+    force_utf8_io()
+    print(json.dumps(compute_status(), ensure_ascii=False))
 
 
 if __name__ == '__main__':
