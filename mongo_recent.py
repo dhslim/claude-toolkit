@@ -25,11 +25,42 @@ semantics become important.
 from __future__ import annotations
 
 import json
+import io
 import re
 import sys
 from datetime import datetime, timedelta, timezone
 
 from _shared import get_db
+
+
+def _rewrap(stream, encoding, errors):
+    """Pin one text stream to `encoding`, whatever the console/locale says.
+
+    reconfigure() is the 3.7+ way; the TextIOWrapper rebuild is the fallback for
+    a stream that lacks it. Same helper as quiz_save.py:27.
+    """
+    if hasattr(stream, 'reconfigure'):
+        stream.reconfigure(encoding=encoding, errors=errors)
+        return stream
+    if hasattr(stream, 'buffer'):
+        return io.TextIOWrapper(stream.buffer, encoding=encoding, errors=errors)
+    return stream
+
+
+def force_utf8_stdout():
+    """Emit UTF-8 regardless of the console codepage.
+
+    Required by the ensure_ascii=False below. This warehouse is Korean-heavy and
+    locale.getpreferredencoding(False) is cp949 on this box, so an unconfigured
+    stdout renders 배기원 as mojibake the moment the escapes are removed. The
+    /slack-style callers invoke this script bare, without PYTHONIOENCODING, so
+    the script guarantees its own encoding rather than relying on every caller
+    to remember (the reasoning quiz_save.py:42 spells out at length).
+
+    errors='replace' so a stray unencodable character can never crash a report.
+    """
+    _rewrap(sys.stdout, 'utf-8', 'replace')
+    _rewrap(sys.stderr, 'utf-8', 'replace')
 
 
 def parse_duration(arg: str) -> timedelta:
@@ -66,6 +97,7 @@ def extract_text(content) -> str:
 
 
 def main():
+    force_utf8_stdout()
     if len(sys.argv) < 2:
         print('Usage: mongo_recent.py <duration>', file=sys.stderr)
         print('Examples: 10 (10 min), 30m, 2h, 1d', file=sys.stderr)
@@ -156,6 +188,9 @@ def main():
 
     client.close()
 
+    # ensure_ascii=False: the default escapes Korean to \uXXXX, which made
+    # every /mgo output unsearchable by any Korean term -- a grep for the
+    # manager's name returned 0 while the file held 25 escaped occurrences.
     print(json.dumps({
         'query': {
             'duration': sys.argv[1],
@@ -165,7 +200,7 @@ def main():
             'dropped_no_inwindow_msgs': dropped_no_inwindow_msgs,
         },
         'sessions': results,
-    }, indent=2, default=str))
+    }, indent=2, default=str, ensure_ascii=False))
 
 
 if __name__ == '__main__':
