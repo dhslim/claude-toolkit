@@ -48,3 +48,12 @@ projects.json
 .embed_cache.npz
 sniff-dump.json
 sniff-dumps/
+
+# Editor-local settings. Deliberately NOT tracked: .vscode/settings.json here
+# carries a Windows-specific venv-activation opt-out that must not propagate to
+# the macOS/Linux boxes.
+.vscode/
+
+# Backups and ad-hoc test logs
+*.bak
+proxy_test*.log
