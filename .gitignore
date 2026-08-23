@@ -20,6 +20,7 @@ quiz-instructions-active.txt
 probe-dump-*.json
 probe-dump-*.summary.txt
 proxy.log
+proxy.log.old.*
 proxy.err.log
 proxy_1m_dump.json
 proxy_over_cap_dump.json
@@ -57,3 +58,6 @@ sniff-dumps/
 # Backups and ad-hoc test logs
 *.bak
 proxy_test*.log
+
+# macOS finder metadata
+.DS_Store
