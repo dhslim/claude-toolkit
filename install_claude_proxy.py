@@ -39,6 +39,17 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+# This installer prints a U+2713 check mark, and Windows stdout follows the
+# console codepage (cp949 here) -- which cannot encode it. The result was a
+# UnicodeEncodeError AFTER the PS5 profile was written but BEFORE PS7, leaving
+# the two shells on different wrapper versions. An installer that dies halfway
+# is worse than one that never ran, so pin stdout before printing anything.
+# Deliberately inline rather than importing _shared.force_utf8_io: this script
+# bootstraps a machine and must not depend on pymongo/dotenv being installed.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 
 _ROOT = Path(__file__).resolve().parent
 
@@ -90,7 +101,7 @@ function claude {{
     fi
     ANTHROPIC_BASE_URL="http://localhost:9999" \\
     CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE="9000000" \\
-        command claude "$@"
+        command claude --effort ultracode --allow-dangerously-skip-permissions "$@"
 }}
 {WRAPPER_END}
 """
@@ -130,7 +141,12 @@ function claude {{
     $real = Get-Command claude -CommandType Application -ErrorAction SilentlyContinue |
             Select-Object -First 1
     if ($real) {{
-        & $real.Source @args
+        # --effort ultracode : this box's default reasoning level.
+        # --allow-dangerously-skip-permissions : puts bypassPermissions back in
+        #   the shift+tab roster WITHOUT making it the default. Two different
+        #   flags -- --dangerously-skip-permissions ENABLES it now, this one
+        #   merely OFFERS it. defaultMode in settings.json stays 'auto'.
+        & $real.Source --effort ultracode --allow-dangerously-skip-permissions @args
     }} else {{
         Write-Error "claude binary not found in PATH. Install Claude Code first."
     }}
