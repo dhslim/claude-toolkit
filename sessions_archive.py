@@ -34,9 +34,13 @@ USAGE
     python sessions_archive.py --archive --before 2026-06          # dry run
     python sessions_archive.py --archive --before 2026-06 --apply
     python sessions_archive.py --list
+    python sessions_archive.py --archive --older-than 60d --apply
+    python sessions_archive.py --list
     python sessions_archive.py --restore <session-id>
 
     Dry run is the default. Nothing is written or deleted without --apply.
+    --restore refuses to overwrite a session that is already live in `sessions`
+    unless --force is given; see cmd_restore for why that case can arise.
 """
 from __future__ import annotations
 
@@ -249,7 +253,7 @@ def cmd_list(db) -> int:
     return 0
 
 
-def cmd_restore(db, sid: str, apply: bool) -> int:
+def cmd_restore(db, sid: str, apply: bool, force: bool = False) -> int:
     arc, col = db[ARCHIVE_COL], db['sessions']
     r = arc.find_one({'session_id': {'$regex': '^' + sid}})
     if not r:
@@ -258,6 +262,26 @@ def cmd_restore(db, sid: str, apply: bool) -> int:
     msgs = _unpack(r['blob'])
     print(f"  {r['session_id']}  {r.get('message_count')} msgs, "
           f"{(r.get('raw_bytes') or 0)/MB:.1f} MB raw")
+
+    # A session can be BOTH archived and live: archiving does not remove the
+    # file_sync_cache entry, so if the local .jsonl survives AND is later
+    # resumed, the line count changes and --scan re-uploads it into `sessions`
+    # while the stale snapshot still sits in the archive. Restoring then would
+    # replace_one() the live conversation with the older copy and silently drop
+    # every message added since. Refuse unless the caller says otherwise.
+    live = col.find_one({'session_id': r['session_id']},
+                        {'message_count': 1, 'last_synced_at_kst': 1})
+    if live and not force:
+        print()
+        print(f"  REFUSING: {r['session_id'][:8]} is already live in `sessions`")
+        print(f"    live    : {live.get('message_count', '?')} msgs, "
+              f"last synced {str(live.get('last_synced_at_kst'))[:19]}")
+        print(f"    archived: {r.get('message_count', '?')} msgs, "
+              f"archived {str(r.get('archived_at_kst'))[:19]}")
+        print('    Restoring would overwrite the live copy with the archived one.')
+        print('    Pass --force only if you mean to discard the live version.')
+        return 1
+
     if not apply:
         print('  (dry run -- re-run with --apply to write it back to sessions)')
         return 0
@@ -266,7 +290,8 @@ def cmd_restore(db, sid: str, apply: bool) -> int:
     doc['messages'] = msgs
     col.replace_one({'session_id': r['session_id']}, doc, upsert=True)
     arc.delete_one({'session_id': r['session_id']})
-    print('  restored to sessions, removed from archive')
+    print('  restored to sessions, removed from archive'
+          + ('  (FORCED over a live copy)' if live else ''))
     return 0
 
 
@@ -282,6 +307,8 @@ def main() -> int:
     ap.add_argument('--older-than', metavar='Nd', default=None,
                     help='rolling window, e.g. 60d -- stable across month boundaries')
     ap.add_argument('--apply', action='store_true', help='actually write/delete')
+    ap.add_argument('--force', action='store_true',
+                    help='--restore only: overwrite a session that is already live')
     a = ap.parse_args()
 
     cutoff = resolve_cutoff(a.before, a.older_than)
@@ -290,7 +317,7 @@ def main() -> int:
         if a.list:
             return cmd_list(db)
         if a.restore:
-            return cmd_restore(db, a.restore, a.apply)
+            return cmd_restore(db, a.restore, a.apply, a.force)
         if a.archive:
             return cmd_archive(db, cutoff, a.apply)
         return cmd_status(db, cutoff)
