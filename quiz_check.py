@@ -117,7 +117,7 @@ STEP 0 (ALWAYS FIRST): run `{VENV_PYTHON} {SCRIPT_DIR}/quiz_status.py`. If it re
 2. Wait for the user's answers. When showing an example answer format, use a generic pattern like "A B C D A" — never build it from the real answers.
 3. Grade by piping their answers as JSON to stdin:
    echo '{{"quiz_id": "{qid}", "answers": ["B", "C", "A", ...]}}' | {VENV_PYTHON} {SCRIPT_DIR}/quiz_grade.py
-   The script returns score, total, and per-question results. Show the score; for EVERY wrong answer, render the question with all four choices verbatim, mark the user's pick and the correct pick, and explain why the correct one is right.
+   The script returns score, total, and per-question results (each item carries `question` and the full `choices` array, right or wrong). Show the score; for EVERY wrong answer, render the question with all four choices verbatim, mark the user's pick and the correct pick, and explain why the correct one is right. ALSO: if the user later asks to review, go over, or discuss ANY question — including ones they got right — restate that question in full with all four choices verbatim before commenting on it. Never discuss a question by number or paraphrase alone; the user should not have to scroll back.
 
 ONLY dismiss if the user EXPLICITLY says "skip quiz", "no quiz today", or "dismiss quiz":
    {VENV_PYTHON} {SCRIPT_DIR}/quiz_dismiss.py
@@ -182,7 +182,7 @@ Steps:
    echo '{{"quiz_id": "<_id from the saved quiz>", "answers": ["B", "C", "A", ...]}}' | {VENV_PYTHON} {SCRIPT_DIR}/quiz_grade.py
    This grades the quiz, saves the score to MongoDB, and marks the quiz as complete — all in one step.
    The script returns JSON with score, total, and per-question results (including the full question text, all choices, the user's answer, and the correct answer).
-   Show the user their score. For EVERY wrong answer, render the original question with all four choices verbatim (using the `choices` array from the result), mark the user's pick and the correct pick, then explain why the correct one is right. Don't summarize the question or drop the choice text — the user wants to see exactly what they got asked.
+   Show the user their score. For EVERY wrong answer, render the original question with all four choices verbatim (using the `choices` array from the result), mark the user's pick and the correct pick, then explain why the correct one is right. Don't summarize the question or drop the choice text — the user wants to see exactly what they got asked. This applies to ANY later review too: if the user asks to go over the quiz, revisit a question, or discuss one they answered correctly, restate that question and all four choices verbatim first. The `choices` array is returned for every item regardless of correctness — use it. Never reference a question by number alone or paraphrase it.
 
 ONLY dismiss the quiz if the user EXPLICITLY says one of these exact phrases: "skip quiz", "no quiz today", or "dismiss quiz".
 Do NOT dismiss based on indirect hints, casual remarks, or anything ambiguous. If unsure, ask the user directly: "Would you like to skip today's quiz?"

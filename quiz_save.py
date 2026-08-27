@@ -8,6 +8,8 @@ import random
 import sys
 from datetime import datetime, timezone
 
+from pymongo.errors import DuplicateKeyError
+
 from _shared import get_db, today_kst, to_kst_iso
 
 LABELS = ['A', 'B', 'C', 'D']
@@ -206,11 +208,36 @@ def main():
             'score': quiz_data.get('score'),
             'graded': False,
         }
-        result = db['daily-quizzes'].insert_one(doc)
-        output = {
-            'quiz_id': str(result.inserted_id),
-            'questions': questions,
-        }
+        # One quiz per day, shared across sessions. Two sessions can both pass a
+        # find_one() before either inserts, so the check and the insert must be a
+        # single atomic op: $setOnInsert writes only when the upsert actually
+        # inserts, and is a no-op when today's quiz already exists.
+        today = doc['date']
+        try:
+            res = db['daily-quizzes'].update_one(
+                {'date': today},
+                {'$setOnInsert': doc},
+                upsert=True,
+            )
+            upserted = res.upserted_id
+        except DuplicateKeyError:
+            # Lost a same-millisecond race against the unique index.
+            upserted = None
+
+        if upserted:
+            output = {
+                'quiz_id': str(upserted),
+                'questions': questions,
+                'reused': False,
+            }
+        else:
+            existing = db['daily-quizzes'].find_one({'date': today})
+            # Present the winner's questions, not the ones we just generated.
+            output = {
+                'quiz_id': str(existing['_id']),
+                'questions': existing.get('questions', []),
+                'reused': True,
+            }
         print(json.dumps(output, ensure_ascii=False))
     except Exception as e:
         print(f'Failed to save quiz: {e}', file=sys.stderr)
