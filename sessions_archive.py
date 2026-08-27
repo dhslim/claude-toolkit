@@ -70,11 +70,37 @@ def _month_key(doc) -> str:
     return str(doc.get('last_synced_at') or '')[:7]
 
 
-def default_cutoff(months: int = 3) -> str:
-    today = datetime.date.today().replace(day=1)
+def _day_key(doc) -> str:
+    """last_synced_at as YYYY-MM-DD, for date-precision cutoffs."""
+    return str(doc.get('last_synced_at') or '')[:10]
+
+
+def resolve_cutoff(before: str | None, older_than: str | None,
+                   months: int = 3) -> str:
+    """Return an ISO date string; everything STRICTLY OLDER is eligible.
+
+    Accepts three spellings, all normalised to YYYY-MM-DD so one comparison
+    serves every mode:
+
+        --before 2026-07        month  -> 2026-07-01 (the whole month is kept)
+        --before 2026-06-25     date   -> used as-is
+        --older-than 60d        window -> today minus 60 days
+
+    Month cutoffs are a blunt instrument near a boundary: on the 1st of a month
+    "keep 2 months" means 31 days, on the 28th it means 59. --older-than is the
+    stable one because it does not care what today's date is.
+    """
+    if older_than:
+        n = int(older_than.rstrip('dD'))
+        return (datetime.date.today() - datetime.timedelta(days=n)).isoformat()
+    if before:
+        if len(before) == 7:            # YYYY-MM -> first day of that month
+            return before + '-01'
+        return before                   # already YYYY-MM-DD
+    first = datetime.date.today().replace(day=1)
     for _ in range(months - 1):
-        today = (today - datetime.timedelta(days=1)).replace(day=1)
-    return today.strftime('%Y-%m')
+        first = (first - datetime.timedelta(days=1)).replace(day=1)
+    return first.isoformat()
 
 
 def _pack(messages):
@@ -108,15 +134,20 @@ def cmd_status(db, cutoff) -> int:
 
     print(f"  {'month':9} {'sessions':>8} {'size':>9} {'eligible':>9}")
     for k in sorted(by):
-        mark = 'YES' if k < cutoff else '-'
+        # a month can be PARTLY eligible now that the cutoff is a date
+        mark = 'YES' if k + '-31' < cutoff else ('-' if k + '-01' >= cutoff else 'PARTIAL')
         print(f'  {k:9} {n[k]:8} {by[k] / MB:8.1f}M {mark:>9}')
 
-    elig = [k for k in by if k < cutoff]
-    if not elig:
+    # Count eligibility per DOCUMENT, not per month bucket: with a date cutoff a
+    # month is often split, and summing whole buckets would overstate the total.
+    eligible = [d for d in col.find({}, {'last_synced_at': 1, 'messages': 1,
+                                         'session_id': 1})
+                if _day_key(d) and _day_key(d) < cutoff]
+    if not eligible:
         print('\n  nothing older than the cutoff')
         return 0
-    raw_mb = sum(by[k] for k in elig) / MB
-    print(f'\n  eligible: {sum(n[k] for k in elig)} sessions, {raw_mb:.1f} MB raw')
+    raw_mb = sum(len(json_util.dumps(d).encode('utf-8')) for d in eligible) / MB
+    print(f'\n  eligible: {len(eligible)} sessions, {raw_mb:.1f} MB raw')
     print('  run --archive to measure the real compression ratio (dry run)')
     return 0
 
@@ -128,7 +159,7 @@ def cmd_archive(db, cutoff, apply: bool) -> int:
     arc.create_index('session_id', unique=True)
     arc.create_index('month')
 
-    docs = [d for d in col.find({}) if _month_key(d) and _month_key(d) < cutoff]
+    docs = [d for d in col.find({}) if _day_key(d) and _day_key(d) < cutoff]
     if not docs:
         print(f'  nothing with last_synced_at older than {cutoff}')
         return 0
@@ -246,11 +277,14 @@ def main() -> int:
     ap.add_argument('--archive', action='store_true')
     ap.add_argument('--list', action='store_true')
     ap.add_argument('--restore', metavar='SESSION_ID')
-    ap.add_argument('--before', metavar='YYYY-MM', default=None)
+    ap.add_argument('--before', metavar='YYYY-MM[-DD]', default=None,
+                    help='cutoff month or exact date')
+    ap.add_argument('--older-than', metavar='Nd', default=None,
+                    help='rolling window, e.g. 60d -- stable across month boundaries')
     ap.add_argument('--apply', action='store_true', help='actually write/delete')
     a = ap.parse_args()
 
-    cutoff = a.before or default_cutoff()
+    cutoff = resolve_cutoff(a.before, a.older_than)
     client, db = get_db()
     try:
         if a.list:

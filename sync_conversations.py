@@ -69,6 +69,37 @@ def toolkit_commit_info():
     return info
 
 
+def drop_thinking_signatures(content):
+    """Strip `signature` from extended-thinking blocks on the way into Mongo.
+
+    An extended-thinking block arrives as {type, thinking, signature}, where the
+    signature is a cryptographic seal proving the reasoning was not tampered
+    with when the conversation is replayed to the API. Claude Code does not
+    persist the reasoning TEXT to the transcript -- measured over 1,866 blocks,
+    `thinking` was empty in every single one -- so what reaches the warehouse is
+    a seal over nothing. Individual seals run from 380 to 12,000+ characters.
+
+    It is also the worst possible thing to store: cryptographic output is
+    maximum-entropy by construction (a compressible signature would be a broken
+    one), so it never compresses. 187 MB across the warehouse, 37% of the whole
+    database, and the reason every codec converged at ~2.5x.
+
+    The BLOCK is kept, only the field is dropped: removing the block would change
+    message shapes and block counts that readers may depend on.
+
+    This only affects the copy written to MongoDB. ~/.claude/projects/**.jsonl is
+    never modified -- `claude --resume` replays those to the API and the API
+    checks the signatures, so stripping them there could break resumption.
+    """
+    if not isinstance(content, list):
+        return content
+    for block in content:
+        if (isinstance(block, dict) and block.get('type') == 'thinking'
+                and 'signature' in block):
+            del block['signature']
+    return content
+
+
 def parse_jsonl(file_path):
     """Parse a JSONL transcript file, returning filtered session data."""
     text = Path(file_path).read_text(encoding='utf-8')
@@ -113,7 +144,8 @@ def parse_jsonl(file_path):
         messages.append({
             'type': msg_type,
             'role': msg.get('role') if isinstance(msg, dict) else None,
-            'content': msg.get('content') if isinstance(msg, dict) else None,
+            'content': drop_thinking_signatures(
+                msg.get('content') if isinstance(msg, dict) else None),
             'timestamp': ts,
             'timestamp_kst': to_kst_iso(ts),
             'uuid': obj.get('uuid'),
