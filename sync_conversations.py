@@ -141,6 +141,79 @@ def parse_jsonl(file_path):
             continue
 
         ts = obj.get('timestamp')
+
+        # A prompt typed WHILE a turn is running is not stored as a user record.
+        # It arrives as {"type": "attachment", "attachment": {"type":
+        # "queued_command", "prompt": ...}} -- the text lives under `attachment`,
+        # and the generic append below only reads `message`, so it would land as
+        # content=None. Census over all 1,363 local transcripts: 852 unique
+        # prompts, 135,426 chars, across 42 sessions, existing nowhere else.
+        # That is ~6.5% of all user input, invisible to /mgo and to the quiz
+        # because both gate on `role`.
+        #
+        # THREE FILTERS, each one load-bearing:
+        #
+        # 1. commandMode == 'prompt'. The same attachment type also carries 391
+        #    task-notification envelopes -- background-agent completion reports,
+        #    58% of all queued text by volume. Promoting those as role='user'
+        #    feeds quiz_data.py:79 agent output labelled [User], so the quiz
+        #    would question the user about statements they never made.
+        #
+        # 2. `prompt` is a str in 1,816 of these records and a LIST in 359 --
+        #    the list form is what a queued prompt containing a pasted image
+        #    looks like. Requiring str silently dropped all 359. But storing the
+        #    list whole is worse: those blocks hold 20,583,487 chars of base64
+        #    (one single record is 910,949), re-importing exactly what
+        #    strip_session_images exists to purge, and pushing sessions into the
+        #    14 MB truncation path below that drops the oldest messages. Text
+        #    blocks only.
+        #
+        #    `[image stripped]` is excluded too: strip_session_images.py:94
+        #    REWRITES image blocks in the local JSONL into text blocks with that
+        #    literal, and it recurses into attachment.prompt. Without this test
+        #    the placeholder is glued onto the user's last word with no
+        #    separator -- 285 of 2,139 promoted messages carried it.
+        #
+        # 3. Cross-session messages from peer agents also ride this type. They
+        #    are another Claude's words, not the user's.
+        #
+        # Everything else stays skipped: the other 30 attachment sub-types are
+        # 36,915 records (93.5%) of UI and state noise -- total_tokens_reminder
+        # alone is 15,412 of them.
+        if msg_type == 'attachment':
+            att = obj.get('attachment')
+            if (isinstance(att, dict) and att.get('type') == 'queued_command'
+                    and att.get('commandMode') == 'prompt'):
+                prompt = att.get('prompt')
+                if isinstance(prompt, str):
+                    prompt_text = prompt
+                elif isinstance(prompt, list):
+                    # `or ''` not `.get('text', '')`: an explicit null value
+                    # returns None from get(), and ''.join then raises
+                    # TypeError, which aborts the whole file -- one malformed
+                    # block would silently stop that session syncing.
+                    parts = [(b.get('text') or '') for b in prompt
+                             if isinstance(b, dict) and b.get('type') == 'text']
+                    prompt_text = ''.join(
+                        p for p in parts if p.strip() != '[image stripped]')
+                else:
+                    prompt_text = ''
+                if prompt_text.strip() and '<cross-session-message' not in prompt_text:
+                    messages.append({
+                        'type': 'user',
+                        'role': 'user',           # it IS the user's own words:
+                                                  # the record carries
+                                                  # origin.kind == "human"
+                        'content': prompt_text,
+                        'queued': True,           # ...but flag it, so a reader
+                                                  # can tell it from a typed turn
+                        'timestamp': ts,
+                        'timestamp_kst': to_kst_iso(ts),
+                        'uuid': obj.get('uuid'),
+                        'parentUuid': obj.get('parentUuid'),
+                    })
+                    continue
+
         messages.append({
             'type': msg_type,
             'role': msg.get('role') if isinstance(msg, dict) else None,
@@ -151,6 +224,56 @@ def parse_jsonl(file_path):
             'uuid': obj.get('uuid'),
             'parentUuid': obj.get('parentUuid'),
         })
+
+    # A queued prompt is USUALLY only ever an attachment, but occasionally the
+    # same text is also delivered as a normal typed turn (3 of 77 sampled).
+    # Promoting both would double-count the user's own words, so drop a promoted
+    # copy whose text already appears as a real message in this same file.
+    # Matched on text ALONE this drops coincidental repeats: 14 of 33 removals
+    # in a full-corpus check had their "twin" more than 5 minutes away -- a
+    # queued 'yes' deleted because the user also typed 'yes' 2.2 hours later,
+    # and one pair 6.8 days apart. A real duplicate is the same utterance
+    # delivered twice within seconds, so require proximity in time as well.
+    DEDUP_WINDOW_S = 300
+
+    def _norm(m):
+        ct = m.get('content')
+        if isinstance(ct, str):
+            return ' '.join(ct.split())
+        if isinstance(ct, list):
+            t = ''.join((b.get('text') or '') for b in ct
+                        if isinstance(b, dict) and b.get('type') == 'text')
+            return ' '.join(t.split())
+        return ''
+
+    def _epoch(m):
+        ts = m.get('timestamp')
+        if not ts:
+            return None
+        try:
+            return datetime.fromisoformat(str(ts).replace('Z', '+00:00')).timestamp()
+        except ValueError:
+            return None
+
+    typed = {}
+    for m in messages:
+        if m.get('role') != 'user' or m.get('queued'):
+            continue
+        k = _norm(m)
+        if k:
+            typed.setdefault(k, []).append(_epoch(m))
+    if typed:
+        def _is_dup(m):
+            if not m.get('queued'):
+                return False
+            when = _epoch(m)
+            for other in typed.get(_norm(m), ()):
+                if when is None or other is None:
+                    return True          # can't compare; assume duplicate
+                if abs(when - other) <= DEDUP_WINDOW_S:
+                    return True
+            return False
+        messages = [m for m in messages if not _is_dup(m)]
 
     if not session_id:
         session_id = Path(file_path).stem
@@ -173,11 +296,41 @@ def count_lines(file_path):
     return len([l for l in text.strip().split('\n') if l])
 
 
+def is_subagent_transcript(path) -> bool:
+    """True for a subagent/workflow transcript, which must NOT be synced.
+
+    Claude Code writes each subagent's transcript to its own file nested under
+    the PARENT session's directory:
+
+        projects/<proj>/8526a317-....jsonl              <- the conversation
+        projects/<proj>/8526a317-.../subagents/agent-*.jsonl
+        projects/<proj>/8526a317-.../subagents/workflows/wf_*/agent-*.jsonl
+
+    Every one of those carries the parent's `sessionId`, and upsert_session
+    keys the document on exactly that field. So syncing a subagent file
+    REPLACES the parent conversation with the agent's handful of messages:
+
+        09:37:54  main file      -> doc = 14,686 messages
+        09:38:12  subagent file  -> same sessionId, doc = 34 messages
+
+    Both files then sit in file_sync_cache at their true line counts, so the
+    scan considers them current and never retries -- the parent is frozen at 34
+    permanently. Session 8526a317 (youmap) lost 14,652 messages this way, and
+    the slow downward drift in total message_count came from the same cause.
+
+    Skipping rather than storing them under their own id is deliberate: the
+    parent conversation already contains the tool_use that launched each agent
+    and the tool_result it returned, so the transcripts are working notes.
+    """
+    return 'subagents' in path.parts
+
+
 def find_all_jsonl_files():
     """Recursively find all .jsonl files under CLAUDE_PROJECTS_DIR."""
     if not CLAUDE_PROJECTS_DIR.exists():
         return []
-    return list(CLAUDE_PROJECTS_DIR.rglob('*.jsonl'))
+    return [p for p in CLAUDE_PROJECTS_DIR.rglob('*.jsonl')
+            if not is_subagent_transcript(p)]
 
 
 def upsert_session(collection, doc):
