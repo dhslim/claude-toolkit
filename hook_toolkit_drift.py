@@ -95,10 +95,17 @@ def spawn_refresh():
 
 
 def read_cache():
+    """Return the cache dict only if well-formed ({"ts": <number>}), else None.
+
+    Validating the shape here keeps main()'s `now - cache["ts"]` arithmetic total: a
+    corrupt or hand-edited cache degrades to "first run" (silent + refresh) instead of
+    raising and breaking the silent-and-safe contract.
+    """
     try:
-        return json.loads(STATE.read_text(encoding="utf-8"))
+        d = json.loads(STATE.read_text(encoding="utf-8"))
     except Exception:
         return None
+    return d if isinstance(d, dict) and isinstance(d.get("ts"), (int, float)) else None
 
 
 def main():
