@@ -3,7 +3,10 @@
     "defaultMode": "bypassPermissions"
   },
   "env": {
-    "CLAUDE_CODE_NO_FLICKER": "1"
+    "CLAUDE_CODE_NO_FLICKER": "1",
+    "CLAUDE_CODE_EFFORT_LEVEL": "max",
+    "EDITOR": "{{REPO_DIR}}/open_in_code.cmd",
+    "VISUAL": "{{REPO_DIR}}/open_in_code.cmd"
   },
   "hooks": {
     "Stop": [
@@ -12,13 +15,18 @@
         "hooks": [
           {
             "type": "command",
+            "command": "{{REPO_DIR}}/.venv/Scripts/pythonw.exe {{REPO_DIR}}/hook_enforce_timestamp.py",
+            "timeout": 5000
+          },
+          {
+            "type": "command",
             "command": "{{REPO_DIR}}/.venv/Scripts/pythonw.exe {{REPO_DIR}}/hook_sync.py",
             "timeout": 30000,
             "async": true
           },
           {
             "type": "command",
-            "command": "{{REPO_DIR}}/.venv/Scripts/python.exe {{REPO_DIR}}/quiz_check.py",
+            "command": "{{REPO_DIR}}/.venv/Scripts/pythonw.exe {{REPO_DIR}}/quiz_check.py",
             "timeout": 5000
           },
           {
@@ -37,6 +45,10 @@
             "type": "command",
             "command": "{{REPO_DIR}}/.venv/Scripts/pythonw.exe {{REPO_DIR}}/hook_turn_start.py",
             "async": true
+          },
+          {
+            "type": "command",
+            "command": "{{REPO_DIR}}/.venv/Scripts/pythonw.exe {{REPO_DIR}}/hook_inject_time.py"
           }
         ]
       }
@@ -72,7 +84,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "{{REPO_DIR}}/.venv/Scripts/python.exe {{REPO_DIR}}/hook_session_guard.py",
+            "command": "{{REPO_DIR}}/.venv/Scripts/pythonw.exe {{REPO_DIR}}/hook_session_guard.py",
             "timeout": 5000
           },
           {
@@ -80,6 +92,11 @@
             "command": "{{REPO_DIR}}/.venv/Scripts/pythonw.exe {{REPO_DIR}}/sync_conversations.py --scan",
             "timeout": 60000,
             "async": true
+          },
+          {
+            "type": "command",
+            "command": "{{REPO_DIR}}/.venv/Scripts/pythonw.exe {{REPO_DIR}}/hook_toolkit_drift.py",
+            "timeout": 5000
           }
         ]
       }
@@ -90,6 +107,11 @@
     "command": "~/.claude/statusline.sh",
     "padding": 1
   },
+  "effortLevel": "xhigh",
+  "model": "opus[1m]",
   "autoUpdatesChannel": "latest",
-  "skipDangerousModePermissionPrompt": true
+  "cleanupPeriodDays": 3650,
+  "skipDangerousModePermissionPrompt": true,
+  "tui": "fullscreen",
+  "autoScrollEnabled": false
 }

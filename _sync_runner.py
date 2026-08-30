@@ -8,42 +8,90 @@ logging with file locking so concurrent runners don't corrupt the log.
 import argparse
 import sys
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 LOG_FILE = SCRIPT_DIR / 'sync.log'
 LOCK_FILE = SCRIPT_DIR / 'sync.log.lock'
+IS_WINDOWS = sys.platform == 'win32'
+KST = timezone(timedelta(hours=9))
 
 sys.path.insert(0, str(SCRIPT_DIR))
 
 
+def _log_ts():
+    """Dual KST | UTC timestamp prefix to avoid timezone confusion when reading sync.log."""
+    now_utc = datetime.now(timezone.utc)
+    now_kst = now_utc.astimezone(KST)
+    return f"{now_kst.strftime('%Y-%m-%d %H:%M:%S')} KST | {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
+
+
+def _acquire_lock(lock_fd):
+    """Acquire exclusive lock on lock_fd. Returns True on success."""
+    try:
+        if IS_WINDOWS:
+            import msvcrt
+            msvcrt.locking(lock_fd.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return True
+    except (OSError, PermissionError, BlockingIOError):
+        return False
+
+
+def _release_lock(lock_fd):
+    """Release lock on lock_fd. Silently ignore errors."""
+    try:
+        if IS_WINDOWS:
+            import msvcrt
+            msvcrt.locking(lock_fd.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        pass
+
+
 def log(msg):
     """Append to sync.log using a lockfile to prevent corruption."""
-    ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-    line = f'[{ts}] {msg}\n'
-    import msvcrt
+    line = f'[{_log_ts()}] {msg}\n'
     lock_fd = None
     try:
-        # Acquire exclusive lock via lockfile
         lock_fd = open(LOCK_FILE, 'w')
-        msvcrt.locking(lock_fd.fileno(), msvcrt.LK_NBLCK, 1)
+        _acquire_lock(lock_fd)
     except (OSError, PermissionError):
-        # If we can't lock, write anyway — better than losing the log
+        # If we can't open the lockfile, write the log anyway — better than losing it
         pass
     try:
         with open(LOG_FILE, 'a', encoding='utf-8') as f:
             f.write(line)
     finally:
         if lock_fd:
-            try:
-                msvcrt.locking(lock_fd.fileno(), msvcrt.LK_UNLCK, 1)
-            except OSError:
-                pass
+            _release_lock(lock_fd)
             lock_fd.close()
 
 
+def _diag_write(line: str) -> None:
+    """Write directly to sync.log with no locking, no imports — for diagnostics.
+
+    Used to record that the child process started AT ALL, before any code
+    path that could fail (imports, locking, MongoDB connect, etc).
+    """
+    try:
+        with open(LOG_FILE, 'a', encoding='utf-8') as f:
+            f.write(line)
+    except Exception:
+        pass
+
+
 def main():
+    # Diagnostic: prove the child process actually started.
+    # If this line is missing from sync.log, subprocess.Popen never spawned us.
+    import os
+    _diag_write(f'[{_log_ts()}] CHILD STARTED pid={os.getpid()} platform={sys.platform} argv={sys.argv[1:]}\n')
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--file', required=True)
     parser.add_argument('--sid', default='?')

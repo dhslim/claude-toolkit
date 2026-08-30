@@ -40,7 +40,7 @@ The quiz agent takes ~50-60 seconds to generate and save. During this time, ever
 
 **Options:**
 - Cache quiz results so subsequent sessions don't regenerate
-- Pre-generate quiz via cron or daily_quiz.py (uses Anthropic API separately)
+- Pre-generate quiz via cron (uses Anthropic API separately)
 
 ### 7. Question quality issues
 - **Ambiguous wording**: e.g. "discovering repos" could mean finding repos in general vs how the daily report locates them. Questions need clearer context.

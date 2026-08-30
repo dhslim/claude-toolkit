@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Social media digest viability — what's scrapeable today</title>
+<style>
+  :root {
+    --bg: #fafaf7;
+    --fg: #1d1d1f;
+    --muted: #6b6b73;
+    --accent: #cc6633;
+    --accent-soft: #f4e8df;
+    --border: #e4e2dc;
+    --code-bg: #f3f1ec;
+
+    --easy: #2f7d4a;
+    --easy-soft: #def3e2;
+    --doable: #b8862a;
+    --doable-soft: #f3ebd3;
+    --painful: #b85c2a;
+    --painful-soft: #f3e2d3;
+    --skip: #c0392b;
+    --skip-soft: #fbe5dc;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font: 16px/1.6 -apple-system, "Segoe UI", system-ui, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 48px 32px 96px; }
+  header { border-bottom: 1px solid var(--border); padding-bottom: 24px; margin-bottom: 32px; }
+  header .crumb {
+    color: var(--muted); font-size: 13px; letter-spacing: .04em;
+    text-transform: uppercase; margin-bottom: 8px;
+  }
+  header h1 { margin: 0 0 12px; font-size: 30px; line-height: 1.25; }
+  header .lede { color: var(--muted); font-size: 17px; max-width: 760px; }
+  header .meta { font-size: 13px; color: var(--muted); margin-top: 14px; }
+  h2 {
+    margin: 56px 0 16px; font-size: 22px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  h3 { margin: 28px 0 8px; font-size: 17px; }
+  p { margin: 12px 0; }
+  code, pre, kbd { font: 13px/1.5 "JetBrains Mono", "Cascadia Code", Consolas, monospace; }
+  code { background: var(--code-bg); padding: 1px 6px; border-radius: 4px; font-size: .9em; }
+  pre {
+    background: var(--code-bg); padding: 14px 16px; border-radius: 8px;
+    overflow-x: auto; border: 1px solid var(--border);
+  }
+  pre code { background: none; padding: 0; }
+
+  /* Tier pills */
+  .pill {
+    display: inline-block; padding: 2px 9px; border-radius: 10px;
+    font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  }
+  .pill-easy { background: var(--easy-soft); color: var(--easy); }
+  .pill-doable { background: var(--doable-soft); color: var(--doable); }
+  .pill-painful { background: var(--painful-soft); color: var(--painful); }
+  .pill-skip { background: var(--skip-soft); color: var(--skip); }
+
+  /* Summary matrix */
+  .matrix { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px; }
+  .matrix th, .matrix td {
+    padding: 9px 12px; border-bottom: 1px solid var(--border);
+    text-align: left; vertical-align: top;
+  }
+  .matrix th { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .matrix td.platform { font-weight: 600; }
+  .matrix td.tier { white-space: nowrap; }
+  .matrix tr:hover { background: var(--accent-soft); }
+  .y { color: var(--easy); font-weight: 600; }
+  .n { color: var(--skip); font-weight: 600; }
+  .p { color: var(--doable); font-weight: 600; }
+
+  /* Platform cards */
+  .card {
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 18px 22px; margin: 18px 0; background: white;
+  }
+  .card.easy { border-left: 4px solid var(--easy); }
+  .card.doable { border-left: 4px solid var(--doable); }
+  .card.painful { border-left: 4px solid var(--painful); }
+  .card.skip { border-left: 4px solid var(--skip); }
+  .card h3 { margin: 0 0 8px; display: flex; align-items: center; gap: 10px; }
+  .card .meta { font-size: 13px; color: var(--muted); margin: 0 0 8px; }
+  .card dl { margin: 8px 0 0; display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; font-size: 14px; }
+  .card dt { color: var(--muted); }
+  .card dd { margin: 0; }
+
+  /* Callout */
+  .callout {
+    background: var(--accent-soft); border-left: 4px solid var(--accent);
+    padding: 14px 18px; border-radius: 6px; margin: 18px 0;
+  }
+  .callout .title { font-weight: 700; color: var(--accent); margin-bottom: 4px; }
+
+  /* Recommendation block */
+  .rec {
+    background: var(--easy-soft); border-left: 4px solid var(--easy);
+    padding: 16px 20px; border-radius: 6px; margin: 18px 0;
+  }
+  .rec .title { font-weight: 700; color: var(--easy); margin-bottom: 6px; }
+  .rec ol { margin: 6px 0 0 20px; padding: 0; }
+  .rec li { margin: 4px 0; }
+
+  footer {
+    margin-top: 80px; padding-top: 20px; color: var(--muted); font-size: 13px;
+    border-top: 1px solid var(--border);
+  }
+
+  @media (max-width: 720px) {
+    .wrap { padding: 24px 18px 64px; }
+    header h1 { font-size: 22px; }
+    .matrix { font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="crumb">claude-toolkit · research</div>
+  <h1>Social media digest viability — what's scrapeable today</h1>
+  <p class="lede">
+    A platform-by-platform read of whether a <code>/digest &lt;url&gt;</code> skill
+    can actually fetch useful content. Honest about the asymmetry: some
+    platforms cooperate (RSS, public APIs, yt-dlp), others actively fight
+    scrapers and require login or heavy machinery.
+  </p>
+  <div class="meta">
+    Snapshot: 2026-05-27 KST. Anti-scraping rules change frequently —
+    revisit this when a previously-easy platform starts failing.
+  </div>
+</header>
+
+<!-- =================== TIER LEGEND =================== -->
+<h2>Tier legend</h2>
+
+<table class="matrix">
+  <tr>
+    <td class="tier"><span class="pill pill-easy">easy</span></td>
+    <td>Public API, RSS, or anonymous web that returns the actual content. Reliable, low maintenance. Build it.</td>
+  </tr>
+  <tr>
+    <td class="tier"><span class="pill pill-doable">doable</span></td>
+    <td>Works via yt-dlp / scraping anonymously. Maintenance burden — breaks every few months. Build if you actually use the platform.</td>
+  </tr>
+  <tr>
+    <td class="tier"><span class="pill pill-painful">painful</span></td>
+    <td>Requires login / cookie / headless browser. Real content only after auth. Heavy deps, brittle, gray-area ToS. Build only if you really need it.</td>
+  </tr>
+  <tr>
+    <td class="tier"><span class="pill pill-skip">skip</span></td>
+    <td>Either no scraping path works at all, or the value-vs-effort is so bad that copy-paste from your logged-in browser is the right answer.</td>
+  </tr>
+</table>
+
+<!-- =================== SUMMARY MATRIX =================== -->
+<h2>Summary at a glance</h2>
+
+<table class="matrix">
+  <thead>
+    <tr>
+      <th>Platform</th>
+      <th>Tier</th>
+      <th>Best fetcher</th>
+      <th>Anon?</th>
+      <th>Transcript / body</th>
+      <th>Comments</th>
+      <th>Breakage</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td class="platform">YouTube</td>           <td><span class="pill pill-easy">easy</span></td>     <td>yt-dlp</td>                   <td class="y">yes</td> <td class="y">yes (auto-captions)</td>     <td class="p">via flag, sometimes</td> <td>low</td></tr>
+    <tr><td class="platform">Reddit</td>            <td><span class="pill pill-easy">easy</span></td>     <td>JSON endpoint (<code>.json</code> suffix)</td> <td class="y">yes</td> <td class="y">yes (full)</td>               <td class="y">yes (full tree)</td>      <td>very low</td></tr>
+    <tr><td class="platform">Hacker News</td>       <td><span class="pill pill-easy">easy</span></td>     <td>Firebase API</td>             <td class="y">yes</td> <td class="y">yes</td>                     <td class="y">yes (full tree)</td>      <td>none</td></tr>
+    <tr><td class="platform">Substack / Medium</td> <td><span class="pill pill-easy">easy</span></td>     <td>WebFetch</td>                 <td class="y">yes</td> <td class="y">yes (article body)</td>      <td class="p">often hidden</td>          <td>very low</td></tr>
+    <tr><td class="platform">RSS / personal blogs</td><td><span class="pill pill-easy">easy</span></td>   <td>feedparser / WebFetch</td>    <td class="y">yes</td> <td class="y">yes</td>                     <td class="n">N/A</td>                  <td>very low</td></tr>
+    <tr><td class="platform">Wikipedia</td>         <td><span class="pill pill-easy">easy</span></td>     <td>MediaWiki API</td>            <td class="y">yes</td> <td class="y">yes (full markup)</td>       <td class="n">N/A</td>                  <td>none</td></tr>
+    <tr><td class="platform">GitHub (issues/PRs/discussions)</td><td><span class="pill pill-easy">easy</span></td><td><code>gh</code> CLI / REST</td>       <td class="y">yes</td> <td class="y">yes</td>                     <td class="y">yes</td>                  <td>very low</td></tr>
+    <tr><td class="platform">Twitter / X</td>       <td><span class="pill pill-doable">doable</span></td> <td>yt-dlp</td>                   <td class="y">yes</td> <td class="y">single tweet</td>            <td class="n">thread requires login</td><td>medium (yt-dlp updates often needed)</td></tr>
+    <tr><td class="platform">TikTok</td>            <td><span class="pill pill-doable">doable</span></td> <td>yt-dlp</td>                   <td class="y">yes</td> <td class="p">desc only, captions rare</td><td class="p">via flag, sometimes</td> <td>medium</td></tr>
+    <tr><td class="platform">Vimeo</td>             <td><span class="pill pill-doable">doable</span></td> <td>yt-dlp</td>                   <td class="y">yes</td> <td class="y">often has captions</td>      <td class="n">no public comments</td>   <td>low</td></tr>
+    <tr><td class="platform">Twitch VODs</td>       <td><span class="pill pill-doable">doable</span></td> <td>yt-dlp</td>                   <td class="y">yes</td> <td class="p">no native transcript</td>    <td class="p">chat replay via tools</td><td>medium</td></tr>
+    <tr><td class="platform">Spotify (podcasts)</td><td><span class="pill pill-doable">doable</span></td> <td>WebFetch + spotify-dl</td>    <td class="p">metadata yes; audio no</td><td class="n">no transcript anonymous</td><td class="n">N/A</td>                  <td>medium</td></tr>
+    <tr><td class="platform">Apple Podcasts</td>    <td><span class="pill pill-doable">doable</span></td> <td>iTunes Lookup API + RSS link</td><td class="y">yes (via show RSS)</td><td class="y">yes if show has RSS</td>  <td class="n">N/A</td>                  <td>low</td></tr>
+    <tr><td class="platform">SoundCloud</td>        <td><span class="pill pill-doable">doable</span></td> <td>yt-dlp</td>                   <td class="y">yes</td> <td class="p">title + desc only</td>       <td class="p">via flag, sometimes</td> <td>low</td></tr>
+    <tr><td class="platform">Mastodon</td>          <td><span class="pill pill-easy">easy</span></td>     <td>public API (per-instance)</td><td class="y">yes</td> <td class="y">yes (full)</td>               <td class="y">yes (full tree)</td>      <td>very low</td></tr>
+    <tr><td class="platform">Bluesky</td>           <td><span class="pill pill-easy">easy</span></td>     <td>AT Protocol public API</td>   <td class="y">yes</td> <td class="y">yes</td>                     <td class="y">yes</td>                  <td>low</td></tr>
+    <tr><td class="platform">Instagram</td>         <td><span class="pill pill-painful">painful</span></td><td>yt-dlp (experimental)</td>  <td class="p">teaser only</td><td class="p">caption only</td>           <td class="n">login required</td>       <td>high (breaks every few weeks)</td></tr>
+    <tr><td class="platform">Threads</td>           <td><span class="pill pill-painful">painful</span></td><td>WebFetch</td>               <td class="p">first post only</td><td class="p">first post text only</td>    <td class="n">login required</td>       <td>high</td></tr>
+    <tr><td class="platform">Facebook</td>          <td><span class="pill pill-painful">painful</span></td><td>Graph API (heavy auth)</td><td class="n">no</td>  <td class="n">login required</td>          <td class="n">login required</td>       <td>n/a — auth-only</td></tr>
+    <tr><td class="platform">LinkedIn</td>          <td><span class="pill pill-skip">skip</span></td>     <td>nothing reliable</td>         <td class="n">no</td>  <td class="n">aggressive anti-scrape</td>  <td class="n">login required</td>       <td>n/a — actively hostile</td></tr>
+    <tr><td class="platform">Pinterest</td>         <td><span class="pill pill-skip">skip</span></td>     <td>nothing reliable</td>         <td class="p">image URLs yes, text no</td><td class="n">login required</td>      <td class="n">N/A meaningful</td>       <td>high</td></tr>
+    <tr><td class="platform">Discord</td>           <td><span class="pill pill-skip">skip</span></td>     <td>bot token only</td>           <td class="n">no</td>  <td class="n">no</td>                      <td class="n">private</td>              <td>n/a — bot required</td></tr>
+    <tr><td class="platform">Slack</td>             <td><span class="pill pill-skip">skip</span></td>     <td>workspace token only</td>     <td class="n">no</td>  <td class="n">no</td>                      <td class="n">private</td>              <td>n/a — bot required</td></tr>
+  </tbody>
+</table>
+
+<!-- =================== EASY TIER =================== -->
+<h2>Easy tier — build these first</h2>
+
+<div class="card easy">
+  <h3>YouTube <span class="pill pill-easy">easy</span></h3>
+  <p class="meta">Already shipped as <code>/youtube</code> in this toolkit. Live-verified 2026-05-27.</p>
+  <dl>
+    <dt>Tool:</dt><dd><code>yt-dlp</code> 2026.03.17 (12M+ PyPI downloads/month, ~2-week release cadence)</dd>
+    <dt>Gets:</dt><dd>Title, description, channel, views, likes, full transcript (manual or auto-generated)</dd>
+    <dt>Misses:</dt><dd>Real-time comments tree (yt-dlp's <code>--write-comments</code> is slow + flaky on popular videos)</dd>
+    <dt>2026 caveat:</dt><dd><strong>SABR / PoToken complications.</strong> YouTube's Server-side Adaptive Bitrate started returning SABR-only formats on the <code>web</code> extractor in 2025, breaking the default download path. Fix: extractor-args hint + cookies from a signed-in browser. Metadata + transcript paths (what we use) are mostly unaffected — only matters if you're downloading actual video bytes.</dd>
+    <dt>Notes:</dt><dd>Works for regular videos, Shorts, live archives. UTF-8 stdout fix needed on Windows (already in our script).</dd>
+  </dl>
+</div>
+
+<div class="card easy">
+  <h3>Reddit <span class="pill pill-easy">easy</span></h3>
+  <dl>
+    <dt>Tool:</dt><dd>Append <code>.json</code> to any Reddit URL → returns the full thread as JSON. No auth needed for public subs.</dd>
+    <dt>Gets:</dt><dd>Post body, every comment in the tree (with score + author + timestamp), media URLs</dd>
+    <dt>Misses:</dt><dd>NSFW / private subreddits, suspended accounts</dd>
+    <dt>Effort:</dt><dd>~30 lines Python. <code>requests.get(url + '.json', headers={'User-Agent': 'claude-toolkit/1.0'})</code> + walk the JSON.</dd>
+  </dl>
+</div>
+
+<div class="card easy">
+  <h3>Hacker News <span class="pill pill-easy">easy</span></h3>
+  <dl>
+    <dt>Tool:</dt><dd>Firebase API at <code>hacker-news.firebaseio.com/v0/item/&lt;id&gt;.json</code></dd>
+    <dt>Gets:</dt><dd>Story, every comment by ID (recursive fetch). Sweet.</dd>
+    <dt>Misses:</dt><dd>Nothing significant — HN is fully public.</dd>
+    <dt>Effort:</dt><dd>~40 lines Python (recursive comment fetch). Zero deps beyond stdlib.</dd>
+  </dl>
+</div>
+
+<div class="card easy">
+  <h3>Substack / Medium / personal blogs <span class="pill pill-easy">easy</span></h3>
+  <dl>
+    <dt>Tool:</dt><dd><code>WebFetch</code> (already built into the assistant)</dd>
+    <dt>Gets:</dt><dd>Full article body via HTML → markdown conversion</dd>
+    <dt>Misses:</dt><dd>Paywalled Substack posts (you'd need your subscriber cookie). Medium "members only" same deal.</dd>
+    <dt>Notes:</dt><dd>For RSS-publishing blogs, prefer the RSS feed — cleaner output, batch-friendly.</dd>
+  </dl>
+</div>
+
+<div class="card easy">
+  <h3>Hacker News, Lobste.rs, RSS feeds <span class="pill pill-easy">easy</span></h3>
+  <dl>
+    <dt>Tool:</dt><dd><code>feedparser</code> Python library</dd>
+    <dt>Gets:</dt><dd>Title, body (often full-text), pub date, author</dd>
+    <dt>Effort:</dt><dd><code>pip install feedparser</code>, then 10 lines.</dd>
+  </dl>
+</div>
+
+<div class="card easy">
+  <h3>GitHub issues, PRs, discussions, gists <span class="pill pill-easy">easy</span></h3>
+  <dl>
+    <dt>Tool:</dt><dd><code>gh</code> CLI (already installed if you have GitHub access) or REST API</dd>
+    <dt>Gets:</dt><dd>Title, body, every comment, labels, status</dd>
+    <dt>Effort:</dt><dd><code>gh issue view &lt;url&gt; --json title,body,comments</code> — one line.</dd>
+  </dl>
+</div>
+
+<div class="card easy">
+  <h3>Bluesky <span class="pill pill-easy">easy</span></h3>
+  <p class="meta">Live-verified 2026-05-27 against <a href="https://docs.bsky.app/docs/advanced-guides/api-directory">official Bluesky docs</a>.</p>
+  <dl>
+    <dt>Tool:</dt><dd>Public AppView API at <code>https://public.api.bsky.app</code> — <strong>no auth needed</strong> for profiles, posts, feeds.</dd>
+    <dt>Example:</dt><dd><code>GET https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed?actor=alice.bsky.social&amp;limit=50</code></dd>
+    <dt>Gets:</dt><dd>Profile, author feed, post + replies, network firehose (WebSocket)</dd>
+    <dt>2026 caveat:</dt><dd>Search (<code>app.bsky.feed.searchPosts</code>) now requires an App Password. Profile/feed reads still fully anon.</dd>
+    <dt>Notes:</dt><dd>Cleanest of all platforms — built on the open AT Protocol. Public data is <em>truly</em> public. <code>curl</code> returns structured JSON immediately. Future-proof bet as Twitter/X locks down further.</dd>
+  </dl>
+</div>
+
+<div class="card easy">
+  <h3>Mastodon <span class="pill pill-easy">easy</span></h3>
+  <dl>
+    <dt>Tool:</dt><dd>Per-instance REST API (e.g., <code>https://mastodon.social/api/v1/statuses/&lt;id&gt;</code>). No auth for public posts.</dd>
+    <dt>Gets:</dt><dd>Post body, reply thread (via <code>/api/v1/statuses/&lt;id&gt;/context</code>), media URLs</dd>
+    <dt>Notes:</dt><dd>Mastodon is federated, so the API host depends on the instance. URL pattern: extract the instance domain + status ID from the URL and call its API directly.</dd>
+  </dl>
+</div>
+
+<!-- =================== DOABLE TIER =================== -->
+<h2>Doable tier — build when you actually use them</h2>
+
+<div class="card doable">
+  <h3>Twitter / X <span class="pill pill-doable">doable</span></h3>
+  <dl>
+    <dt>Tool:</dt><dd><code>yt-dlp</code> handles single-tweet URLs</dd>
+    <dt>Gets:</dt><dd>Tweet text, attached media, basic engagement metrics</dd>
+    <dt>Misses:</dt><dd><strong>Thread continuation</strong> usually requires login. Replies definitely require login since X locked down public viewing.</dd>
+    <dt>Maintenance:</dt><dd>X breaks scrapers regularly. <code>yt-dlp</code> ships fixes within days but you'll see "extractor needs update" errors.</dd>
+    <dt>Alternative:</dt><dd>If you have an X API key (paid), use it. Otherwise yt-dlp is the only sane anon path.</dd>
+  </dl>
+</div>
+
+<div class="card doable">
+  <h3>TikTok <span class="pill pill-doable">doable</span></h3>
+  <dl>
+    <dt>Tool:</dt><dd><code>yt-dlp</code></dd>
+    <dt>Gets:</dt><dd>Video, title (often empty), description, view count, author</dd>
+    <dt>Misses:</dt><dd>Most TikToks don't have real transcripts. Some have auto-generated subtitles if you pass <code>--write-auto-subs</code> but coverage is spotty (~30%).</dd>
+    <dt>Notes:</dt><dd>For audio-only digest, pipe through Whisper locally — adds ~2s/min of video but gives reliable transcript.</dd>
+  </dl>
+</div>
+
+<div class="card doable">
+  <h3>Vimeo, Twitch VODs, SoundCloud <span class="pill pill-doable">doable</span></h3>
+  <dl>
+    <dt>Tool:</dt><dd><code>yt-dlp</code></dd>
+    <dt>Gets:</dt><dd>Media + metadata. Vimeo has captions on creator-uploaded transcripts; Twitch has none natively (use chat log for context).</dd>
+    <dt>Maintenance:</dt><dd>Low. These platforms don't actively hunt scrapers.</dd>
+  </dl>
+</div>
+
+<div class="card doable">
+  <h3>Spotify, Apple Podcasts <span class="pill pill-doable">doable</span></h3>
+  <dl>
+    <dt>Tool:</dt><dd>WebFetch for episode page + iTunes Lookup API for show RSS</dd>
+    <dt>Gets:</dt><dd>Episode title, show notes, sometimes a chapter list</dd>
+    <dt>Misses:</dt><dd>The actual audio — Spotify locks it down hard. For digest purposes, show notes + chapter titles + an LLM summary of those is usually enough.</dd>
+    <dt>Notes:</dt><dd>Many podcasts also publish on their own RSS feed which gives you the MP3 directly. Always check the show's RSS first.</dd>
+  </dl>
+</div>
+
+<!-- =================== PAINFUL TIER =================== -->
+<h2>Painful tier — known unfriendly, requires login or accept partial data</h2>
+
+<div class="card painful">
+  <h3>Instagram <span class="pill pill-painful">painful</span></h3>
+  <p class="meta">Live-verified 2026-05-27: anti-bot meaningfully tougher this year. Per <a href="https://scrapfly.io/blog/posts/how-to-scrape-instagram">Scrapfly</a>: "mandatory login walls, GraphQL obfuscation, rapid IP flagging."</p>
+  <dl>
+    <dt>Tool (yt-dlp):</dt><dd>Officially supported. For public reels: video + caption usually works.</dd>
+    <dt>Tool (Python lib):</dt><dd><a href="https://github.com/subzeroid/instagrapi">instagrapi</a> — most actively maintained Python lib in 2026. <a href="https://instaloader.github.io/">Instaloader</a> = free, public-only, no proxies. <a href="https://github.com/chris-greening/instascrape">instascrape</a> = simple OO wrapper.</dd>
+    <dt>Gets anonymously:</dt><dd>Public profile basics, public reel videos with captions. Carousels half-fail.</dd>
+    <dt>Misses anon:</dt><dd>Comments (login-only). Stories. Most posts past initial loads.</dd>
+    <dt>Anti-bot reality:</dt><dd>Instagram rotates GraphQL <code>doc_id</code> values every 2–4 weeks, breaking scrapers. Datacenter IPs banned within minutes. Detectable TLS fingerprints on naive Python <code>requests</code>. Needs residential or 4G mobile proxies + authenticated sessions for anything production.</dd>
+    <dt>If you really need it:</dt><dd>instagrapi + residential proxies + auth. Heavy. Plan for 1-2 hrs/month of maintenance.</dd>
+    <dt>Commercial bailouts:</dt><dd>ScrapFly, Apify, Bright Data, Lobstr.io — managed APIs that absorb the anti-bot grind.</dd>
+  </dl>
+</div>
+
+<div class="card painful">
+  <h3>Threads <span class="pill pill-painful">painful</span></h3>
+  <p class="meta">Live-verified 2026-05-27: yt-dlp <strong>still has no extractor</strong> (open issue <a href="https://github.com/yt-dlp/yt-dlp/issues/12021">#12021</a>, duplicate <a href="https://github.com/yt-dlp/yt-dlp/issues/15086">#15086</a>, latest stable 2025.10.22, 1,839 extractors loaded, Threads not among them).</p>
+  <dl>
+    <dt>Tool (anon):</dt><dd><code>WebFetch</code> for first-post metadata. Or DIY: Playwright headless → load page → extract embedded <code>__RELAY_STORE__</code> / <code>window.__data</code> Relay payload → parse with jmespath. Threads is React/Relay-based and embeds JSON in inline scripts.</dd>
+    <dt>Gets anonymously:</dt><dd>First post text, author, engagement counts, view count.</dd>
+    <dt>Misses anon:</dt><dd>Thread continuation, replies, comments — all gated behind login. Threads's "teaser → continuation in reply" format is exactly what the anon view hides.</dd>
+    <dt>Anti-bot intensity:</dt><dd>Heavy. Simple <code>requests + BeautifulSoup</code> fails immediately (no JS execution). Datacenter IPs flagged fast. Needs residential proxy + headless browser for any depth.</dd>
+    <dt>Commercial bailouts:</dt><dd><a href="https://scrapecreators.com/blog/threads-api">ScrapeCreators</a>, <a href="https://sociavault.com/blog/threads-scraper-api">SociaVault</a>, <a href="https://apify.com/automation-lab/threads-scraper">Apify "no-login" actors</a> (some need a Session ID — those aren't anonymous; avoid them if anonymity matters). Pricing varies; commercial APIs absorb the anti-bot maintenance.</dd>
+    <dt>Workaround:</dt><dd>Many Threads creators cross-post to Instagram or X. Check the same handle there before giving up.</dd>
+  </dl>
+</div>
+
+<div class="card painful">
+  <h3>Facebook <span class="pill pill-painful">painful</span></h3>
+  <dl>
+    <dt>Tool:</dt><dd>Graph API requires app review and user login. No useful anon path.</dd>
+    <dt>Notes:</dt><dd>Public Pages used to be partially scrapeable; Meta closed that hole. Effectively login-gated for everything meaningful.</dd>
+  </dl>
+</div>
+
+<!-- =================== SKIP TIER =================== -->
+<h2>Skip tier — copy-paste is faster than building</h2>
+
+<div class="card skip">
+  <h3>LinkedIn <span class="pill pill-skip">skip</span></h3>
+  <dl>
+    <dt>Why skip:</dt><dd>LinkedIn is the most aggressive anti-scraper of any major platform. Multiple court cases (hiQ v. LinkedIn). Cookies expire within hours. Even with login, programmatic access trips bot detection in minutes.</dd>
+    <dt>Better approach:</dt><dd>Open the post in your browser, copy the text, paste here. Five seconds vs. days of maintaining a scraper that breaks.</dd>
+  </dl>
+</div>
+
+<div class="card skip">
+  <h3>Pinterest <span class="pill pill-skip">skip</span></h3>
+  <dl>
+    <dt>Why skip:</dt><dd>Pinterest is primarily image-driven; the text content per pin is short and the discovery context is the value. Hard to scrape, low return.</dd>
+  </dl>
+</div>
+
+<div class="card skip">
+  <h3>Discord, Slack <span class="pill pill-skip">skip</span></h3>
+  <dl>
+    <dt>Why skip:</dt><dd>Both require workspace/server bot tokens. Workspace-scoped data isn't "social media" in the digest sense — it's chat that already lives in your account.</dd>
+    <dt>If needed:</dt><dd>Use the platform's export feature for archival, not for one-off digest.</dd>
+  </dl>
+</div>
+
+<!-- =================== RECOMMENDED BUILD ORDER =================== -->
+<h2>Recommended build order</h2>
+
+<div class="rec">
+  <div class="title">If you want a generic <code>/digest &lt;url&gt;</code> skill, build platforms in this order:</div>
+  <ol>
+    <li><strong>Reddit</strong> — biggest value, easiest implementation (<code>.json</code> trick)</li>
+    <li><strong>Hacker News</strong> — same shape, even easier (Firebase API)</li>
+    <li><strong>Substack / Medium / RSS</strong> — share WebFetch path, useful for newsletter digestion</li>
+    <li><strong>GitHub issues/PRs</strong> — <code>gh</code> CLI is already on disk</li>
+    <li><strong>Twitter / X</strong> — useful, but accept thread continuations need login</li>
+    <li><strong>Mastodon / Bluesky</strong> — small effort, open protocols, future-proof</li>
+    <li><strong>TikTok</strong> — only if you actually watch a lot of TikTok</li>
+    <li><strong>Stop here</strong> for most users. Below this line the ROI gets bad fast.</li>
+  </ol>
+</div>
+
+<!-- =================== ARCHITECTURE NOTE =================== -->
+<h2>Architecture suggestion</h2>
+
+<p>
+  Don't build a separate <code>/reddit</code>, <code>/hn</code>, <code>/x</code>
+  skill for each platform. Build <strong>one <code>/digest &lt;url&gt;</code>
+  skill</strong> that dispatches by URL pattern:
+</p>
+
+<pre><code># skill manifest just calls one Python entry point:
+python digest.py "$ARGUMENTS"
+
+# digest.py routes by domain:
+match urlparse(url).netloc:
+    case "youtube.com" | "youtu.be":         from fetchers import youtube      ; ...
+    case "reddit.com" | "old.reddit.com":    from fetchers import reddit       ; ...
+    case "news.ycombinator.com":             from fetchers import hackernews   ; ...
+    case "twitter.com" | "x.com":            from fetchers import twitter      ; ...
+    case s if s.endswith("substack.com"):    from fetchers import substack     ; ...
+    case "instagram.com" | "threads.com":    return _ask_user_to_paste(url)
+    case _:                                  from fetchers import generic_html ; ...
+</code></pre>
+
+<p>
+  Each <code>fetchers/*.py</code> is small (one platform's quirks
+  isolated). Adding a new platform = adding a new file. Removing a broken
+  platform = deleting one file. No cross-contamination.
+</p>
+
+<div class="callout">
+  <div class="title">Heads-up: this landscape moves fast</div>
+  Anti-scraping rules change continuously. The "easy" platforms today
+  may close off; the "painful" ones may open up (e.g., Bluesky going
+  mainstream gives a hopeful alternative to X). Treat this matrix as a
+  2026-05 snapshot, not a forever-truth. Revisit when a platform you
+  rely on starts failing.
+</div>
+
+<!-- =================== COMMERCIAL APIS =================== -->
+<h2>The "pay-the-anti-bot-tax" option</h2>
+
+<p>
+  For platforms in the painful tier (Instagram, Threads, X-at-scale),
+  there's a real "buy not build" option in 2026: managed scraping APIs.
+  They absorb the proxy rotation, doc_id rotations, headless browser
+  fleet, anti-bot updates — you call a stable endpoint, they handle the
+  arms race.
+</p>
+
+<table class="matrix">
+  <thead>
+    <tr><th>Service</th><th>Strengths</th><th>Pricing model</th><th>Worth it for</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="platform">ScrapFly</td>
+      <td>Generic web scraping w/ anti-bot bypass, good Instagram + Threads support</td>
+      <td>Credits per request</td>
+      <td>Mixed platform workflows</td>
+    </tr>
+    <tr>
+      <td class="platform">Apify</td>
+      <td>"Actor" model — many community-maintained scrapers per platform</td>
+      <td>Per-actor + compute</td>
+      <td>One-shot bulk jobs (e.g., scrape a creator's full history)</td>
+    </tr>
+    <tr>
+      <td class="platform">ScrapeCreators</td>
+      <td>Unofficial Threads/IG APIs without business app or OAuth</td>
+      <td>API key, tiered</td>
+      <td>Production Threads/IG integration</td>
+    </tr>
+    <tr>
+      <td class="platform">SociaVault</td>
+      <td>Threads-specific (posts, profiles, replies)</td>
+      <td>API key</td>
+      <td>Threads at any volume</td>
+    </tr>
+    <tr>
+      <td class="platform">Bright Data, Lobstr.io</td>
+      <td>Big-vendor scraping infrastructure</td>
+      <td>Enterprise</td>
+      <td>Companies, not personal toolkits</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>
+  For our specific use case ("I see a good post, I want to digest it
+  now") none of these are worth wiring up — they're for production
+  pipelines. <strong>The right answer for one-off Threads/IG digests
+  remains: open in your logged-in browser, copy, paste here.</strong>
+  Commercial APIs become attractive only when you're running
+  this dozens of times per day.
+</p>
+
+<!-- =================== SOURCES =================== -->
+<h2>Sources (verified 2026-05-27)</h2>
+
+<ul>
+  <li><a href="https://github.com/yt-dlp/yt-dlp">yt-dlp on GitHub</a> — 160K stars, 1,800+ extractors, ~2-week release cadence</li>
+  <li><a href="https://github.com/yt-dlp/yt-dlp/issues/12021">yt-dlp issue #12021</a> + <a href="https://github.com/yt-dlp/yt-dlp/issues/15086">#15086</a> — open Threads support requests (still unresolved)</li>
+  <li><a href="https://docs.bsky.app/docs/advanced-guides/api-directory">Bluesky API Hosts &amp; Auth docs</a> — public AppView endpoint, no-auth public reads</li>
+  <li><a href="https://docs.bsky.app/docs/api/app-bsky-feed-get-posts">Bluesky <code>getPosts</code> reference</a></li>
+  <li><a href="https://scrapfly.io/blog/posts/how-to-scrape-threads">Scrapfly: How to scrape Threads (2026 update)</a> — Playwright + <code>__RELAY_STORE__</code> approach</li>
+  <li><a href="https://scrapfly.io/blog/posts/how-to-scrape-instagram">Scrapfly: How to scrape Instagram (2026)</a> — anti-bot status, GraphQL doc_id rotation cadence</li>
+  <li><a href="https://github.com/subzeroid/instagrapi">instagrapi</a> — current most-active Python lib for Instagram</li>
+  <li><a href="https://scrapecreators.com/blog/threads-api">ScrapeCreators Threads API</a> — commercial unofficial API option</li>
+  <li><a href="https://sociavault.com/blog/threads-scraper-api">SociaVault Threads Scraper API</a> — alternative commercial option</li>
+  <li><a href="https://apify.com/automation-lab/threads-scraper">Apify Threads Scraper actor</a> — no-login community actor</li>
+</ul>
+
+<footer>
+  Written 2026-05-27 KST. Related:
+  <a href="claude_proxy_explainer.html"><code>claude_proxy_explainer.html</code></a> for the proxy architecture,
+  <a href="native_vs_proxy_context_limits.html"><code>native_vs_proxy_context_limits.html</code></a> for the context-limit handling explainer.
+  See <code>yt_fetch.py</code> in the repo root and <code>~/.claude/skills/youtube/SKILL.md</code>
+  for the already-shipped YouTube fetcher this analysis is patterned on.
+</footer>
+
+</div>
+</body>
+</html>
