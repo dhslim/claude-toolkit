@@ -79,11 +79,16 @@ def fetch(url: str, lang: str = "en,ko", **_) -> dict:
                 "outtmpl": outtmpl, "ignoreerrors": True, "noprogress": True,
                 **_CLIENT_ARGS,
             }
+            dl_error = None
             try:
                 with yt_dlp.YoutubeDL(dl_opts) as ydl:
                     info = ydl.extract_info(url, download=True) or info
-            except yt_dlp.utils.DownloadError:
-                pass
+            except yt_dlp.utils.DownloadError as e:
+                # Keep it: pass 1 already gave us usable metadata, so a failed
+                # subtitle pass must not sink the whole fetch. But a silently
+                # swallowed error is worse -- it makes "captions don't exist"
+                # and "the download broke" produce the identical empty result.
+                dl_error = str(e)
 
             vid = info.get("id", "")
             for kind, label in (("subtitles", "manual"), ("automatic_captions", "auto")):
@@ -107,8 +112,25 @@ def fetch(url: str, lang: str = "en,ko", **_) -> dict:
                 if any_vtt:
                     transcript = _vtt_to_text(any_vtt[0])
                     transcript_source = "unknown"
+
+            if not transcript:
+                # The probe SAID these tracks exist, yet nothing landed on disk.
+                # Report which, and why -- otherwise this is indistinguishable
+                # from a video that simply has no captions, and the reader
+                # cannot tell a broken fetch from an honest absence.
+                notes.append(
+                    "Subtitle tracks were offered (" + ",".join(wanted) + ") but "
+                    "none downloaded" + (f": {dl_error}" if dl_error else
+                                         " (no .vtt written).")
+                )
         else:
-            notes.append("No subtitle languages matched (tried " + ",".join(langs) + ").")
+            offered = sorted(set(manual) | set(auto))
+            notes.append(
+                "No subtitle languages matched (tried " + ",".join(langs) + ")."
+                + (" Available: " + ",".join(offered[:25])
+                   + (f" (+{len(offered) - 25} more)" if len(offered) > 25 else "")
+                   if offered else " This video offers no caption tracks at all.")
+            )
 
     return {
         "ok": True,
