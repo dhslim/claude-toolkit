@@ -61,11 +61,25 @@ def fetch(url: str, lang: str = "en,ko", **_) -> dict:
 
         manual = info.get("subtitles") or {}
         auto = info.get("automatic_captions") or {}
+        offered = list(manual) + [k for k in auto if k not in manual]
+
+        # YouTube tags caption tracks with region and variant suffixes -- 'en-US',
+        # 'en-GB', 'pt-BR', 'ko-KR', plus yt-dlp's own '-orig'. Matching the bare
+        # code exactly therefore MISSES tracks that plainly exist: the video
+        # NUhDP30IRKk offers en-US, zh-Hans and zh-Hant, and asking for 'en' found
+        # nothing at all. So accept the exact code first (a real 'en' track beats a
+        # regional one), then fall back to any tag whose primary subtag matches.
+        def _primary(tag: str) -> str:
+            return tag.split("-", 1)[0].lower()
+
         wanted = []
         for l in langs:
-            for candidate in (l, f"{l}-orig"):
-                if candidate in manual or candidate in auto:
-                    wanted.append(candidate)
+            low = l.lower()
+            exact = [t for t in offered if t.lower() == low]
+            orig = [t for t in offered if t.lower() == f"{low}-orig"]
+            regional = [t for t in offered
+                        if _primary(t) == low and t not in exact and t not in orig]
+            wanted.extend(exact + orig + regional)
         seen: set[str] = set()
         wanted = [x for x in wanted if not (x in seen or seen.add(x))]
 
