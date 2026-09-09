@@ -1,5 +1,5 @@
 ---
-name: review-quiz
+name: quiz-review
 description: Re-read today's daily quiz in full and go over any question
 disable-model-invocation: true
 ---
