@@ -7,6 +7,15 @@ started weeks ago but was active yesterday is therefore included (the old
 session-level pre-filter silently dropped those — ~86% of real activity on a
 typical day). Only the in-window user/assistant messages cross the wire; the DB
 does the work, not the client.
+
+Ordering note: the pipeline deliberately has NO $sort stages. Sorting unwound
+messages (or the regrouped session docs) server-side carries the full message
+content through the sort and blows past MongoDB's 32MB in-memory sort limit
+(error 292 / QueryExceededMemoryLimitNoDiskUseAllowed), and allowDiskUse is not
+permitted on shared Atlas tiers. Each message's timestamp is carried through the
+$group instead, and both orderings — chronological within a session, and
+sessions by id — are applied client-side below, where the data is already
+truncated and small.
 """
 
 import io
@@ -39,9 +48,8 @@ def main():
                 'messages.timestamp': {'$gte': start_utc, '$lt': end_utc},
                 'messages.role': {'$in': ['user', 'assistant']},
             }},
-            # 4) chronological within each session
-            {'$sort': {'messages.timestamp': 1}},
-            # 5) regroup by session for presentation
+            # 4) regroup by session for presentation; timestamp is kept so the
+            #    chronological ordering can be applied client-side (see docstring)
             {'$group': {
                 '_id': '$session_id',
                 'project': {'$first': '$project'},
@@ -49,9 +57,9 @@ def main():
                 'messages': {'$push': {
                     'role': '$messages.role',
                     'content': '$messages.content',
+                    'timestamp': '$messages.timestamp',
                 }},
             }},
-            {'$sort': {'_id': 1}},
         ]
 
         groups = list(db['sessions'].aggregate(pipeline))
@@ -59,12 +67,20 @@ def main():
             print('No messages found for yesterday for quiz generation.')
             sys.exit(0)
 
+        # Sessions by id (was the trailing server-side $sort)
+        groups.sort(key=lambda g: str(g.get('_id') or ''))
+
         all_chunks = []
         total_msg_count = 0
 
         for g in groups:
+            msgs = g.get('messages') or []
+            # Chronological within the session (was the server-side $sort on
+            # messages.timestamp, dropped to stay under the 32MB sort limit)
+            msgs.sort(key=lambda m: str(m.get('timestamp') or ''))
+
             session_chunks = []
-            for msg in g.get('messages') or []:
+            for msg in msgs:
                 content = msg.get('content', '')
                 text = ''
                 if isinstance(content, str):
