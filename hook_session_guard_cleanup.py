@@ -12,6 +12,7 @@ import os
 import platform
 import sys
 from pathlib import Path
+from typing import Optional
 
 IS_WINDOWS = platform.system() == 'Windows'
 
@@ -61,7 +62,7 @@ if IS_WINDOWS:
         return None, None
 
 
-def _find_claude_ancestor() -> int | None:
+def _find_claude_ancestor() -> Optional[int]:
     """Walk up the process tree to find the claude process."""
     try:
         pid = os.getpid()

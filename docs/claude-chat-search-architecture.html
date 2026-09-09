@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>claude-chat-search — Architecture (locked)</title>
+<style>
+  :root{
+    --bg:#0d1117;--panel:#161b22;--panel2:#1a1f27;--bd:#30363d;
+    --tx:#c9d3de;--dim:#8b949e;--hi:#e6edf3;
+    --k:#79c0ff;--s:#a5d6ff;--add:#7ee787;--del:#ff7b72;--warn:#f0883e;--pur:#d2a8ff;
+    --mono:"SFMono-Regular",Consolas,Menlo,monospace;--sans:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--tx);font-family:var(--sans);line-height:1.6;margin:0;padding:0 16px 80px}
+  .wrap{max-width:960px;margin:0 auto}
+  header.top{padding:36px 0 12px;border-bottom:1px solid var(--bd);margin-bottom:8px}
+  h1{font-size:26px;color:var(--hi);margin:0 0 6px;letter-spacing:-.3px}
+  .sub{color:var(--dim);font-size:14px}
+  .lock{display:inline-block;font-family:var(--mono);font-size:11px;padding:2px 9px;border-radius:20px;border:1px solid #1f4a2f;color:var(--add);background:#0f1c12;margin-left:6px}
+  h2{font-size:19px;color:var(--hi);margin:36px 0 10px;padding-top:14px;border-top:1px solid var(--bd)}
+  p{margin:10px 0}
+  code{font-family:var(--mono);background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12.5px;color:var(--s)}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--bd);vertical-align:top}
+  th{color:var(--dim);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.4px}
+  .lead{font-size:16px;color:var(--hi)}
+  .small{font-size:12.5px;color:var(--dim)}
+  .box{background:var(--panel);border:1px solid var(--bd);border-radius:10px;padding:14px 16px;margin:16px 0}
+  .box.warn{border-color:#5a3a1a;background:#1c160d}
+  .done{color:var(--add)}.todo{color:var(--warn)}
+  .flow{font-family:var(--mono);font-size:12.5px;white-space:pre;overflow:auto;color:var(--tx);line-height:1.5}
+  .footer{margin-top:46px;padding-top:16px;border-top:1px solid var(--bd);color:var(--dim);font-size:12px}
+  ul{margin:8px 0;padding-left:22px}li{margin:4px 0}
+  b.k{color:var(--hi)}
+  .no{color:var(--del)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>claude-chat-search — Architecture <span class="lock">✓ STACK LOCKED · 2026-06-30</span></h1>
+  <div class="sub">A private, always-available, <b>single-user</b> web service to search your entire Claude history — hybrid lexical + semantic, on plain Postgres, served serverless.</div>
+</header>
+
+<p class="lead">One line: <b>Neon + Postgres-native hybrid search + bge-m3-via-DeepInfra + a Vercel serverless app, behind a Cloudflare passkey.</b></p>
+<p class="small">Host decision: <b>Vercel, not EC2.</b> This is a request/response tool (open → search → done), so serverless fits — scales to zero, ~$0, no box to babysit. EC2 stays a <i>future option</i> if it ever grows into 24/7 autonomous work; migrating is cheap because the data lives in Neon, not on the host.</p>
+
+<h2>The stack — six layers</h2>
+<table>
+  <tr><th>Layer</th><th>Choice</th><th>Status</th></tr>
+  <tr><td><b>Data</b></td><td><b>Neon Postgres</b> <code>claude_chat</code> @ ap-southeast-1 — 1,423 convs · 16,602 msgs · 16,199 embeddings (~140 MB)</td><td><span class="done">✅ done</span></td></tr>
+  <tr><td><b>Search</b></td><td><b>Pure Postgres</b> — pgvector (semantic) + tsvector (lexical) + <b>hand-rolled RRF</b> (hybrid). <span class="no">No Elasticsearch, no Lakebase.</span></td><td><span class="done">✅ done</span> — logic verified in <code>cmd_hybrid</code></td></tr>
+  <tr><td><b>Query embedding</b></td><td><b>bge-m3 via DeepInfra</b> (hosted API, 1024-dim, L2-normalized). Removes the 2.3 GB model from the host.</td><td><span class="todo">⏳ wire</span></td></tr>
+  <tr><td><b>App</b></td><td><b>Vercel serverless app</b> — a search page + an <code>/api/search</code> route that embeds (DeepInfra) → queries (Neon). <span class="small">Build as a small Next.js app (Vercel-native) <i>or</i> port the FastAPI logic to Vercel's Python runtime — decide at build.</span></td><td><span class="todo">⏳ build</span></td></tr>
+  <tr><td><b>Host</b></td><td><b>Vercel (Hobby, free)</b> — serverless, scales to zero, auto-HTTPS, git-push deploy. No server to manage.</td><td><span class="todo">⏳ deploy</span></td></tr>
+  <tr><td><b>Access</b></td><td><b>Cloudflare Access (passkey)</b> on a custom domain → private <code>chat.&lt;domain&gt;</code>; app verifies the CF-Access JWT so the raw <code>*.vercel.app</code> URL can't be used to bypass it.</td><td><span class="todo">⏳ set up</span></td></tr>
+</table>
+
+<h2>How a search flows</h2>
+<div class="box">
+<div class="flow">  any device, any network
+        │  https://chat.&lt;yourdomain&gt;
+        ▼
+  ┌──────────────────────────────────┐
+  │  Cloudflare  Access (passkey)             │  public URL, but only YOU pass
+  └───────────────┬──────────────────┘
+        │  proxied (+ CF-Access JWT in header)
+        ▼
+  ┌──────────────────────────────────────────────┐
+  │  Vercel  serverless function                                  │
+  │    • serves the search page                                  │
+  │    • /api/search : verify CF-JWT → embed → query             │
+  │            │                         │                        │
+  │   embed query│                  SQL  │                        │
+  └────────────┼─────────────────────┼───────────────────────┘
+        ▼                         ▼
+  ┌──────────────────┐   ┌──────────────────────────┐
+  │ DeepInfra  bge-m3        │   │ Neon Postgres  claude_chat       │
+  │ (only the QUERY TEXT     │   │ pgvector + tsvector + RRF        │
+  │  leaves — never chats)   │   │ (state lives HERE, not Vercel)   │
+  └──────────────────┘   └──────────────────────────┘</div>
+</div>
+<p class="small">Your <b>chats never leave</b> — they're already embedded and sit in Neon. The only thing that exits is the <i>search phrase you type</i>, sent once to DeepInfra for its 1024-dim vector. The Vercel function is <b>stateless</b> — it holds nothing precious, which is exactly why it's swappable later.</p>
+
+<h2>Why this stack (derived, not picked)</h2>
+<ul>
+  <li><b class="k">Search = plain Postgres, not ES/Lakebase.</b> Single user → a bounded ceiling that never reaches where heavyweight search earns its keep. At 16k rows, brute-force pgvector is <i>exact</i>; an ANN index would be a downgrade. <span class="small">Revisit only at ~150k–300k msgs.</span></li>
+  <li><b class="k">Embedding = DeepInfra, not on-box.</b> bge-m3's ~2.3 GB RAM was the entire cost driver. Offloading the query embed (~fractions of a cent each) lets the host be a free serverless function.</li>
+  <li><b class="k">Host = Vercel, not EC2.</b> A search is <i>request/response</i> — it only runs when you open it. Serverless scales to zero, costs ~$0, and needs zero maintenance (no SSH, patches, or security groups). EC2's versatility is wasted here — reserve it for if this grows into 24/7 autonomous work.</li>
+  <li><b class="k">Low lock-in by design.</b> State = Neon + DeepInfra (both external). Vercel is dumb stateless compute. Outgrow it → re-wrap the entry point onto EC2/a container, point at the same Neon + DeepInfra. ~half a day, not a rebuild.</li>
+</ul>
+
+<h2>Cost</h2>
+<table>
+  <tr><th>Piece</th><th>Cost</th></tr>
+  <tr><td>Vercel (Hobby)</td><td><b>$0</b> — personal / non-commercial</td></tr>
+  <tr><td>DeepInfra (query embedding)</td><td>~$0 — fractions of a cent/mo</td></tr>
+  <tr><td>Neon · Cloudflare Access</td><td>$0 (free tiers)</td></tr>
+  <tr><td>Domain (optional)</td><td>~$1/mo</td></tr>
+  <tr><td><b>Total</b></td><td><b>~$0–1/mo</b></td></tr>
+</table>
+
+<h2>Decision log — forks NOT taken</h2>
+<table>
+  <tr><th>Considered</th><th>Status / why</th></tr>
+  <tr><td>Elasticsearch / Neon Lakebase</td><td><span class="no">Rejected</span> — overkill at 16k rows; approximate vs your exact brute-force. Single-user ceiling never reaches their scale.</td></tr>
+  <tr><td>EC2 t3.micro/medium (a box)</td><td><span class="todo">Future option</span> — the "stem cell": maximally versatile, but you babysit it, and a request/response tool doesn't need 24/7 compute. Switch to it only if this grows agents/monitors/long jobs. Migration is cheap (data is in Neon).</td></tr>
+  <tr><td>bge-m3 on-box ($30 box / Oracle Free)</td><td><span class="no">Not needed</span> — only if running the model yourself. DeepInfra removes the RAM need.</td></tr>
+  <tr><td>GitHub Pages / Tailscale-only</td><td><span class="no">Rejected</span> — Pages can't run a backend; Tailscale is device-only, not "any setting."</td></tr>
+</table>
+
+<h2>Gotchas to honor when building</h2>
+<div class="box warn">
+<ul style="margin:0">
+  <li><b>Embedding must match:</b> DeepInfra must return <b>bge-m3 at 1024-dim, L2-normalized (cosine)</b> — same as the corpus. Any other model/dim → cosine scores are meaningless.</li>
+  <li><b>Lexical config:</b> the query side must use <code>plainto_tsquery('simple', q)</code> — your <code>body_tsv</code> is the <code>'simple'</code> config (KO/EN-safe). <code>'english'</code> mis-tokenizes + skips the index.</li>
+  <li><b>Vercel Hobby URLs are public:</b> the raw <code>*.vercel.app</code> URL bypasses Cloudflare. So the function must <b>verify the Cloudflare-Access JWT</b> (or a shared secret) and reject requests without it — otherwise "private" isn't.</li>
+  <li><b>Stay portable:</b> keep state in Neon + DeepInfra; <b>avoid Vercel's proprietary data products</b> (Vercel KV/Postgres/Edge Config). Vercel = runtime only → the EC2 exit stays a half-day, not a rebuild.</li>
+  <li><b>Secrets server-side:</b> <code>DATABASE_URL</code> + the DeepInfra key live in Vercel env vars, never shipped to the browser.</li>
+</ul>
+</div>
+
+<h2>Status &amp; next steps</h2>
+<ul>
+  <li>✅ Data · Search (lexical + semantic + hybrid logic) — done &amp; verified</li>
+  <li>⏳ Wire query embedding to <b>DeepInfra</b> (bge-m3, 1024-dim, normalized)</li>
+  <li>⏳ Build the <b>Vercel app</b> (search page + <code>/api/search</code>) — Next.js or FastAPI-on-Vercel</li>
+  <li>⏳ Deploy to <b>Vercel</b> (git push), set env vars</li>
+  <li>⏳ <b>Cloudflare Access</b> (passkey) on custom domain + app-side JWT check</li>
+  <li>⏳ Security check: logged-out / raw <code>*.vercel.app</code> can't reach results; secrets stay server-side</li>
+</ul>
+
+<div class="footer">claude-chat-search · stack locked 2026-06-30 (Vercel + DeepInfra) · tracker: <code>docs/claude-chat-search-tracker.html</code></div>
+
+</div>
+</body>
+</html>

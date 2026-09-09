@@ -14,27 +14,28 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from bson import ObjectId
-from _shared import get_db, today_kst
+from _shared import force_utf8_io, get_db, to_kst_iso, today_kst
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 TAKEN_FILE = SCRIPT_DIR / 'quiz-last-taken.txt'
 
 
 def main():
+    force_utf8_io()
     data = sys.stdin.read().strip()
     if not data:
-        print(json.dumps({"error": "No input provided on stdin."}))
+        print(json.dumps({"error": "No input provided on stdin."}, ensure_ascii=False))
         sys.exit(1)
 
     try:
         input_data = json.loads(data)
     except json.JSONDecodeError as e:
-        print(json.dumps({"error": f"Invalid JSON: {e}"}))
+        print(json.dumps({"error": f"Invalid JSON: {e}"}, ensure_ascii=False))
         sys.exit(1)
 
     user_answers = input_data.get('answers', [])
     if not user_answers:
-        print(json.dumps({"error": "No answers provided."}))
+        print(json.dumps({"error": "No answers provided."}, ensure_ascii=False))
         sys.exit(1)
 
     client, db = get_db()
@@ -53,12 +54,12 @@ def main():
             )
 
         if not quiz_doc:
-            print(json.dumps({"error": "No quiz found for today."}))
+            print(json.dumps({"error": "No quiz found for today."}, ensure_ascii=False))
             sys.exit(1)
 
         questions = quiz_doc.get('questions', [])
         if not questions:
-            print(json.dumps({"error": "Quiz has no questions."}))
+            print(json.dumps({"error": "Quiz has no questions."}, ensure_ascii=False))
             sys.exit(1)
 
         # Grade each question
@@ -72,6 +73,7 @@ def main():
                 correct_count += 1
             results.append({
                 "question": q.get('q', ''),
+                "choices": q.get('choices', []),
                 "user_answer": user_ans,
                 "correct_answer": correct,
                 "correct": is_correct,
@@ -79,6 +81,7 @@ def main():
 
         total = len(questions)
         now = datetime.now(timezone.utc)
+        now_kst_iso = to_kst_iso(now)
 
         # Update quiz document with answers and score
         db['daily-quizzes'].update_one(
@@ -89,13 +92,14 @@ def main():
                 'total': total,
                 'graded': True,
                 'graded_at': now,
+                'graded_at_kst': now_kst_iso,
             }}
         )
 
         # Write quiz-markers (source of truth for cross-machine sync)
         db['quiz-markers'].update_one(
             {'date': today},
-            {'$set': {'taken_at': now}},
+            {'$set': {'taken_at': now, 'taken_at_kst': now_kst_iso}},
             upsert=True
         )
 
@@ -107,10 +111,10 @@ def main():
             "total": total,
             "results": results,
         }
-        print(json.dumps(output))
+        print(json.dumps(output, ensure_ascii=False))
 
     except Exception as e:
-        print(json.dumps({"error": str(e)}))
+        print(json.dumps({"error": str(e)}, ensure_ascii=False))
         sys.exit(1)
     finally:
         client.close()

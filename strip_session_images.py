@@ -26,7 +26,12 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 SYNC_LOG = SCRIPT_DIR / 'sync.log'
 CLAUDE_PROJECTS = Path.home() / '.claude' / 'projects'
-SYNC_COMPLETE_PREFIXES = ('SYNC OK', 'SYNC SKIP', 'SYNC ERR', 'SYNC FAIL')
+SYNC_SUCCESS_PREFIXES = ('SYNC OK',)
+# Everything else is a failure for *this* purpose: SKIP means sync_one_file
+# returned None, ERR means the runner raised, FAIL means the file was gone —
+# in all three cases nothing was upserted, so there is no archive copy to
+# fall back on and the local images must not be destroyed.
+SYNC_FAILURE_PREFIXES = ('SYNC SKIP', 'SYNC ERR', 'SYNC FAIL')
 
 
 def resolve_session_path(arg: str) -> Path:
@@ -55,8 +60,13 @@ def file_has_images(path: Path) -> bool:
     return False
 
 
-def wait_for_sync(sid: str, timeout_s: float = 20.0) -> bool:
-    """Poll sync.log for a SYNC OK/SKIP/ERR/FAIL line mentioning sid."""
+def wait_for_sync(sid: str, timeout_s: float = 20.0) -> str:
+    """Poll sync.log for this session's sync outcome.
+
+    Returns 'ok' (archived — safe to strip), 'failed' (a SKIP/ERR/FAIL line
+    landed, so nothing was archived) or 'timeout' (no verdict in time).
+    A failure short-circuits instead of burning the full timeout.
+    """
     deadline = time.time() + timeout_s
     start_pos = SYNC_LOG.stat().st_size if SYNC_LOG.exists() else 0
     while time.time() < deadline:
@@ -65,12 +75,16 @@ def wait_for_sync(sid: str, timeout_s: float = 20.0) -> bool:
                 with open(SYNC_LOG, 'r', encoding='utf-8', errors='replace') as f:
                     f.seek(start_pos)
                     for line in f:
-                        if sid in line and any(p in line for p in SYNC_COMPLETE_PREFIXES):
-                            return True
+                        if sid not in line:
+                            continue
+                        if any(p in line for p in SYNC_SUCCESS_PREFIXES):
+                            return 'ok'
+                        if any(p in line for p in SYNC_FAILURE_PREFIXES):
+                            return 'failed'
         except OSError:
             pass
         time.sleep(0.25)
-    return False
+    return 'timeout'
 
 
 def _walk(obj, counter):
@@ -116,7 +130,7 @@ def main():
     ap.add_argument('--no-backup', action='store_true', help='Skip writing .bak file')
     ap.add_argument('--quiet', action='store_true')
     ap.add_argument('--wait-for-sync', metavar='SID',
-                    help='Wait up to 20s for sync.log to show completion for SID before stripping')
+                    help='Wait up to 20s for sync.log to show a successful archive of SID before stripping')
     ap.add_argument('--skip-if-clean', action='store_true',
                     help='Exit 0 immediately if file has no image blocks')
     args = ap.parse_args()
@@ -129,8 +143,10 @@ def main():
         return
 
     if args.wait_for_sync:
-        if not wait_for_sync(args.wait_for_sync):
-            sys.exit(f'Timed out waiting for sync of {args.wait_for_sync}; not stripping.')
+        status = wait_for_sync(args.wait_for_sync)
+        if status != 'ok':
+            sys.exit(f'No archive confirmation for {args.wait_for_sync} '
+                     f'({status}); not stripping.')
 
     n, before, after = do_strip(path, backup=not args.no_backup)
     if not args.quiet:

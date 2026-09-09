@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anatomy of a POST /v1/messages request</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1a1f27; --bd:#30363d;
+    --tx:#c9d3de; --dim:#8b949e; --hi:#e6edf3;
+    --k:#79c0ff; --s:#a5d6ff; --c:#8b949e; --m:#d2a8ff; --add:#7ee787; --del:#ff7b72; --warn:#f0883e;
+    --hdr:#58a6ff; --body:#7ee787;
+    --mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--tx);font-family:var(--sans);line-height:1.6;margin:0;padding:0 16px 80px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:960px;margin:0 auto}
+  header.top{padding:38px 0 10px;border-bottom:1px solid var(--bd);margin-bottom:8px}
+  h1{font-size:27px;color:var(--hi);margin:0 0 6px;letter-spacing:-.3px}
+  .sub{color:var(--dim);font-size:14.5px}
+  h2{font-size:20px;color:var(--hi);margin:42px 0 10px;padding-top:14px;border-top:1px solid var(--bd)}
+  h3{font-size:15.5px;color:var(--hi);margin:24px 0 8px}
+  h4{font-size:13px;color:var(--dim);margin:0 0 8px;text-transform:uppercase;letter-spacing:.6px}
+  p{margin:10px 0}
+  code{font-family:var(--mono);background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12.5px;color:var(--s)}
+  pre{background:var(--panel);border:1px solid var(--bd);border-radius:8px;padding:14px 16px;overflow:auto;font-family:var(--mono);font-size:12.5px;line-height:1.55;margin:12px 0}
+  pre code{background:none;padding:0}
+  .k{color:var(--k)} .s{color:var(--s)} .c{color:var(--c);font-style:italic} .m{color:var(--m)} .add{color:var(--add)} .del{color:var(--del)} .warn{color:var(--warn)}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--bd);vertical-align:top}
+  th{color:var(--dim);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.4px}
+  td code{font-size:12px}
+  .lead{font-size:16px;color:var(--hi)}
+  .small{font-size:12.5px;color:var(--dim)}
+  .pill{display:inline-block;font-family:var(--mono);font-size:11px;padding:1px 7px;border-radius:20px;border:1px solid var(--bd);color:var(--dim)}
+  .pill.hdr{color:var(--hdr);border-color:#1f3a5f}
+  .pill.body{color:var(--body);border-color:#1f4a2f}
+  .box{background:var(--panel);border:1px solid var(--bd);border-radius:10px;padding:14px 16px;margin:16px 0}
+  .box.warn{border-color:#5a3a1a;background:#1c160d}
+  .box.good{border-color:#1f4a2f;background:#0f1c12}
+  .box.amber{border-color:#5a4a1a;background:#1b170c}
+  .req{display:inline-block;font-size:10.5px;font-family:var(--mono);padding:1px 6px;border-radius:4px}
+  .req.r{background:#3d1d1d;color:#ff9c92} .req.o{background:#23304a;color:#9ec5ff} .req.cnd{background:#3a341a;color:#e8c97a}
+  .envel{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}
+  @media(max-width:680px){.envel{grid-template-columns:1fr}}
+  .half{background:var(--panel);border:1px solid var(--bd);border-radius:10px;padding:12px 14px}
+  .half.hdr{border-top:3px solid var(--hdr)} .half.body{border-top:3px solid var(--body)}
+  .footer{margin-top:50px;padding-top:16px;border-top:1px solid var(--bd);color:var(--dim);font-size:12px}
+  .tag{font-family:var(--mono);font-size:10.5px;color:var(--dim);border:1px solid var(--bd);border-radius:4px;padding:0 5px;margin-left:6px}
+  a{color:var(--k)}
+  .anno{color:var(--warn)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>Anatomy of a <code>POST /v1/messages</code> request</h1>
+  <div class="sub">The wire format Claude Code sends to Anthropic — headers + JSON body — annotated with the <b>real payloads we captured from your own machine</b>. Verified against <code>platform.claude.com/docs</code>.</div>
+</header>
+
+<p class="lead">Every turn you take in Claude Code becomes one HTTPS request: <code>POST https://api.anthropic.com/v1/messages</code>. It has exactly two parts — an <span class="pill hdr">envelope (headers)</span> and a <span class="pill body">letter (JSON body)</span> — split by a single blank line. Get those two straight and the whole API stops being mysterious.</p>
+
+<div class="envel">
+  <div class="half hdr">
+    <h4><span class="pill hdr">HEADERS</span> — the envelope</h4>
+    <p class="small" style="margin:6px 0 0">Metadata <i>about</i> the request: who you are (<code>authorization</code>), which API contract (<code>anthropic-version</code>), which beta features (<code>anthropic-beta</code>), the content type, and SDK telemetry. The server reads these to route &amp; authorize.</p>
+  </div>
+  <div class="half body">
+    <h4><span class="pill body">JSON BODY</span> — the letter</h4>
+    <p class="small" style="margin:6px 0 0">The actual ask: which <code>model</code>, the <code>messages</code> history, <code>max_tokens</code>, the <code>system</code> prompt, <code>tools</code>, <code>thinking</code>… This is where the <i>request parameters</i> live — there is no "model header"; the model is a body field.</p>
+  </div>
+</div>
+
+<p>Here is a real (small) request from your Claude Code, with the auth token redacted and the body collapsed:</p>
+<pre><span class="k">POST</span> /v1/messages?beta=true HTTP/1.1            <span class="c"># request line</span>
+Host: localhost:9999                              <span class="c"># (your proxy; → api.anthropic.com upstream)</span>
+Authorization: Bearer <span class="del">&lt;redacted&gt;</span>
+Content-Type: application/json
+anthropic-version: 2023-06-01
+anthropic-beta: claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,…
+User-Agent: claude-cli/2.1.193 (external, cli)
+X-Stainless-Lang: js     X-Stainless-OS: Windows     X-Stainless-Retry-Count: 0
+                                                  <span class="c"># ← blank line = divider</span>
+{ <span class="k">"model"</span>: <span class="s">"claude-opus-4-8"</span>, <span class="k">"max_tokens"</span>: 32000,
+  <span class="k">"system"</span>: […], <span class="k">"messages"</span>: […], <span class="k">"thinking"</span>: {…}, <span class="k">"metadata"</span>: {…} }</pre>
+
+<h2>1 · The headers (the envelope)</h2>
+<p>Headers carry <i>identity, versioning, and feature flags</i> — never the request content. Required vs optional below; <span class="req r">required</span> <span class="req cnd">conditional</span> <span class="req o">optional</span>.</p>
+<table>
+  <tr><th>Header</th><th></th><th>What it does</th></tr>
+  <tr><td><code>Host</code></td><td><span class="req r">req</span></td><td>The target authority. A proxy <b>must rewrite</b> it to <code>api.anthropic.com</code> so it matches the upstream TLS vhost (your client sent <code>localhost:9999</code>).</td></tr>
+  <tr><td><code>Authorization: Bearer …</code><br><span class="small">or <code>x-api-key</code></span></td><td><span class="req cnd">cnd</span></td><td>Auth. Send <b>exactly one</b>: <code>x-api-key</code> (Console API key) <i>or</i> <code>Authorization: Bearer</code> (a short-lived OAuth token — which is what Claude Code / Max uses). Not interchangeable.</td></tr>
+  <tr><td><code>anthropic-version</code></td><td><span class="req r">req</span></td><td>Pins the API contract — request params, response shape, SSE format, error conditions. Current: <code>2023-06-01</code>. Within a version Anthropic only <i>adds</i> (new optional inputs, new enum values), so parse defensively. SDKs set it for you.</td></tr>
+  <tr><td><code>anthropic-beta</code></td><td><span class="req o">opt</span></td><td>One <b>comma-separated</b> list of dated feature flags (<code>feature-YYYY-MM-DD</code>). Opts into experimental features. An unknown flag → <code>invalid_request_error "Unsupported beta header"</code>. (See §6 for the date convention.)</td></tr>
+  <tr><td><code>content-type</code></td><td><span class="req r">req</span></td><td>Must be <code>application/json</code>.</td></tr>
+  <tr><td><code>Content-Length</code></td><td><span class="req cnd">cnd</span></td><td>Byte length of the body. A proxy that <i>edits</i> the body must recompute it. (Requests cap at <b>32 MB</b> → <code>413 request_too_large</code>.)</td></tr>
+  <tr><td><code>User-Agent</code>, <code>x-stainless-*</code></td><td><span class="req o">opt</span></td><td>SDK telemetry (language, OS, package version, retry count). <b>Not part of the API contract</b> — the server ignores them; a proxy may forward or drop them.</td></tr>
+  <tr><td><code>anthropic-dangerous-direct-browser-access</code></td><td><span class="req cnd">cnd</span></td><td>Only for direct browser/CORS calls. Its scary name is deliberate — it enables CORS but does <b>not</b> make a client-embedded key safe.</td></tr>
+</table>
+
+<div class="box">
+<h4>End-to-end vs hop-by-hop</h4>
+<p style="margin:6px 0 0">Headers split into two kinds, and this is why a proxy can safely sit in the middle: <b>end-to-end</b> headers (<code>authorization</code>, <code>anthropic-version</code>, <code>anthropic-beta</code>, <code>content-type</code>) describe the <i>message</i> and must be forwarded <b>verbatim</b>. <b>Hop-by-hop</b> headers (<code>Host</code>, <code>Content-Length</code>, <code>Connection</code>, <code>Transfer-Encoding</code>) describe <i>this one TCP leg</i> and are re-made for the next leg. Re-enveloping the request never touches the letter inside.</p>
+</div>
+
+<h2>2 · The body — top-level fields (the letter)</h2>
+<p>The body is one JSON object. <b>Three fields are required</b> — <code>model</code>, <code>messages</code>, <code>max_tokens</code> — everything else is optional. Note <code>max_tokens</code> has <b>no default</b>, and the model goes <i>here in the body</i>, not in a header.</p>
+<table>
+  <tr><th>Field</th><th></th><th>Type</th><th>Meaning</th></tr>
+  <tr><td><code>model</code></td><td><span class="req r">req</span></td><td>string</td><td>Which brain, e.g. <code>claude-opus-4-8</code>. Picks the model — <b>not</b> the window size (that's native or set by a beta header). See §7 for the subtle "<code>[1m]</code>" twist.</td></tr>
+  <tr><td><code>messages</code></td><td><span class="req r">req</span></td><td>array</td><td>The conversation (see §3). Up to 100,000 messages; consecutive same-role turns are merged. There is no <code>system</code> role here.</td></tr>
+  <tr><td><code>max_tokens</code></td><td><span class="req r">req</span></td><td>integer</td><td>Hard cap on tokens generated. No default — you must supply it. The model may stop earlier.</td></tr>
+  <tr><td><code>system</code></td><td><span class="req o">opt</span></td><td>string | block[]</td><td>System prompt, as a <b>top-level field</b> (not a message). Array form lets you attach <code>cache_control</code> per block. (§4)</td></tr>
+  <tr><td><code>temperature</code></td><td><span class="req o">opt</span></td><td>0.0–1.0</td><td>Randomness. Default <b>1.0</b>. Range is <b>0–1</b> (not 0–2). Even 0.0 isn't fully deterministic.</td></tr>
+  <tr><td><code>top_p</code> / <code>top_k</code></td><td><span class="req o">opt</span></td><td>number / int</td><td>Nucleus / top-k sampling. No default; advanced use only — don't tune alongside <code>temperature</code>.</td></tr>
+  <tr><td><code>stop_sequences</code></td><td><span class="req o">opt</span></td><td>string[]</td><td>Custom strings that halt generation → <code>stop_reason:"stop_sequence"</code>.</td></tr>
+  <tr><td><code>stream</code></td><td><span class="req o">opt</span></td><td>boolean</td><td><code>true</code> → SSE stream. <b>This</b> turns on streaming, not an <code>Accept</code> header. (§6)</td></tr>
+  <tr><td><code>metadata</code></td><td><span class="req o">opt</span></td><td>object</td><td>Only documented sub-field is <code>user_id</code> — an <b>opaque</b> id/hash for abuse detection. Must contain no PII.</td></tr>
+  <tr><td><code>thinking</code></td><td><span class="req o">opt</span></td><td>object</td><td>Extended thinking config, e.g. <code>{type:"enabled", budget_tokens:4096}</code>. (§5)</td></tr>
+  <tr><td><code>tools</code> / <code>tool_choice</code></td><td><span class="req o">opt</span></td><td>array / object</td><td>Tool definitions + how to use them. (§4)</td></tr>
+  <tr><td><code>service_tier</code></td><td><span class="req o">opt</span></td><td>enum</td><td><code>"auto"</code> | <code>"standard_only"</code> — priority vs standard capacity.</td></tr>
+  <tr><td><code>output_config</code></td><td><span class="req o">opt</span></td><td>object</td><td>Reasoning <code>effort</code> (low…max) and structured output (<code>format:{type:"json_schema",…}</code>).</td></tr>
+</table>
+<p class="small"><b>Your real body keys</b> (captured today): <code>model</code>, <code>max_tokens</code>, <code>system</code>, <code>messages</code>, <code>thinking</code>, <code>metadata</code> — exactly the shape above.</p>
+
+<h2>3 · The <code>messages</code> array &amp; content blocks</h2>
+<p>An ordered list of turns. Each turn is <code>{ "role": "user" | "assistant", "content": … }</code>. <code>content</code> is either a plain <b>string</b> (shorthand for one text block) or an <b>array of typed blocks</b>. The model reads the whole history and generates the next <code>assistant</code> turn.</p>
+<table>
+  <tr><th>Block <code>type</code></th><th>Shape</th><th>Used for</th></tr>
+  <tr><td><code>text</code></td><td><code>{type,text}</code></td><td>Plain text. A string <code>content</code> is exactly this.</td></tr>
+  <tr><td><code>image</code></td><td><code>{type,source}</code></td><td><code>source</code> is base64 (<code>media_type</code>+<code>data</code>), a URL, or a Files-API <code>file_id</code>. Put the image <i>before</i> the text.</td></tr>
+  <tr><td><code>document</code></td><td><code>{type,source,…}</code></td><td>PDF / text / content. <code>citations:{enabled:true}</code> opts into source citations.</td></tr>
+  <tr><td><code>tool_use</code></td><td><code>{type,id,name,input}</code></td><td>Emitted by the <b>assistant</b> to call a tool. Parse <code>input</code> as JSON, never string-match it.</td></tr>
+  <tr><td><code>tool_result</code></td><td><code>{type,tool_use_id,content,is_error?}</code></td><td>Sent in the next <b>user</b> turn to return the tool's output. <code>tool_use_id</code> must match.</td></tr>
+  <tr><td><code>thinking</code></td><td><code>{type,thinking,signature}</code></td><td>Extended-thinking reasoning + an encrypted <code>signature</code>. Echo back <b>unmodified</b>.</td></tr>
+  <tr><td><code>redacted_thinking</code></td><td><code>{type,data}</code></td><td>Safety-encrypted thinking. <b>Must</b> be passed back untouched, or the next request 400s.</td></tr>
+</table>
+<div class="box warn">
+<h4 class="anno">The #1 multi-turn gotcha</h4>
+<p style="margin:6px 0 0">The API is <b>stateless</b> — you resend the <i>entire</i> prior conversation every request, including unmodified <code>thinking</code> / <code>tool_use</code> / <code>tool_result</code> blocks. The most common bug: filtering content blocks by type and accidentally <b>dropping <code>redacted_thinking</code></b> → <code>400 invalid_request_error</code>. (Resending all that history is also exactly what your proxy's <b>sliding-window trim</b> exists to keep under the cap.)</p>
+</div>
+
+<h2>4 · System prompt &amp; tools</h2>
+<p><b>System prompt:</b> a top-level <code>system</code> field — there is no <code>"system"</code> role in <code>messages</code>. String form for simple prompts; array-of-text-blocks form when you want <code>cache_control</code> on parts of it.</p>
+<p><b>Tools:</b> a top-level <code>tools</code> array. Each custom tool is <code>{name, description, input_schema}</code> where <code>input_schema</code> is JSON Schema. The model decides via <code>tool_choice</code> (<code>auto</code> / <code>any</code> / <code>tool</code> / <code>none</code>). The round-trip:</p>
+<pre><span class="c"># assistant turn — model asks to call a tool (stop_reason: "tool_use")</span>
+{ <span class="k">"role"</span>:<span class="s">"assistant"</span>, <span class="k">"content"</span>:[
+  {<span class="k">"type"</span>:<span class="s">"tool_use"</span>, <span class="k">"id"</span>:<span class="s">"toolu_01A…"</span>, <span class="k">"name"</span>:<span class="s">"get_weather"</span>, <span class="k">"input"</span>:{<span class="k">"location"</span>:<span class="s">"Paris"</span>}} ]}
+
+<span class="c"># YOU run the tool, then answer in the NEXT user turn (tool_result FIRST)</span>
+{ <span class="k">"role"</span>:<span class="s">"user"</span>, <span class="k">"content"</span>:[
+  {<span class="k">"type"</span>:<span class="s">"tool_result"</span>, <span class="k">"tool_use_id"</span>:<span class="add">"toolu_01A…"</span>, <span class="k">"content"</span>:<span class="s">"18°C, overcast"</span>} ]}</pre>
+<p class="small">Gotchas: <code>tool_result</code> must come <b>first</b> in its user turn and <b>immediately follow</b> the <code>tool_use</code> message; <code>tool_use_id</code> must match exactly; forcing a tool (<code>any</code>/<code>tool</code>) suppresses any prose; extended <code>thinking</code> is incompatible with forced tool use. <b>Server tools</b> (web search, code execution) run automatically — you don't send <code>tool_result</code> for those.</p>
+
+<h2>5 · Extended thinking, prompt caching &amp; streaming</h2>
+<table>
+  <tr><th>Feature</th><th>How it's set</th><th>Notes</th></tr>
+  <tr><td><b>Extended thinking</b></td><td><code>"thinking": {type:"enabled", budget_tokens:N}</code></td><td><code>budget_tokens</code> ≥ 1024 and <b>&lt; <code>max_tokens</code></b> (it counts toward it). Response gains <code>thinking</code> blocks (carry a <code>signature</code>). Newest models default to a "summarized/omitted" display.</td></tr>
+  <tr><td><b>Prompt caching</b></td><td><code>"cache_control": {type:"ephemeral", ttl:"5m"|"1h"}</code> on a block</td><td>Marks a cache breakpoint (max 4/request). Re-reading a cached prefix is cheap → shows up as <code>cache_read_input_tokens</code> in <code>usage</code>. <i>(This is how your 400k-token sessions stay fast — the prefix is cached.)</i></td></tr>
+  <tr><td><b>Streaming</b></td><td><code>"stream": true</code> in the body</td><td>Response becomes <code>text/event-stream</code> with named SSE events: <code>message_start</code> → repeated <code>content_block_start</code>/<code>_delta</code>/<code>_stop</code> → <code>message_delta</code> → <code>message_stop</code> (plus <code>ping</code>). Set by the body field, <b>not</b> by <code>Accept</code>.</td></tr>
+</table>
+
+<h2>6 · The dated beta convention</h2>
+<p>Every <code>anthropic-beta</code> flag is named <code>feature-name-YYYY-MM-DD</code>, where the date is the <b>version</b> of that beta — so you lock onto a stable snapshot, and a future iteration ships under a <i>new</i> date without breaking you. Your captured header, decoded:</p>
+<pre>anthropic-beta:
+  claude-code-20250219            <span class="c"># Claude Code integration</span>
+  oauth-2025-04-20                <span class="c"># OAuth (Max) auth</span>
+  interleaved-thinking-2025-05-14 <span class="c"># thinking between tool calls</span>
+  context-management-2025-06-27   <span class="c"># server-side context tools</span>
+  prompt-caching-scope-2026-01-05
+  mid-conversation-system-2026-04-07
+  extended-cache-ttl-2025-04-11
+  <span class="add">context-1m-2025-08-07</span>           <span class="c"># ← 1M window — present ONLY on the "(1M context)" variant</span></pre>
+<p class="small">It's the same idea as <code>anthropic-version: 2023-06-01</code> — that pins the whole <i>API</i>; betas pin individual <i>features</i>.</p>
+
+<h2>7 · The twist: <code>model</code> name ≠ the window your client believes</h2>
+<div class="box amber">
+<p style="margin-top:0">A subtlety we proved on the wire today, worth pinning down because it bit us:</p>
+<ul style="margin:6px 0 0;padding-left:20px">
+  <li><b>On the wire</b>, the <code>model</code> field is always plain <code>claude-opus-4-8</code> for real messages. The 1M window is requested by the <b><code>context-1m-2025-08-07</code> header</b> — never by a <code>[1m]</code> in the model name (that exact string <b>404s</b>: <code>not_found_error: claude-opus-4-8[1m]</code>).</li>
+  <li><b>Opus 4.8 is natively 1M</b>, so even <i>without</i> that header it accepts 400k+ tokens (we measured <code>cache_read=418k → 200 OK</code>). So the header is redundant for this model.</li>
+  <li><b>But Claude Code's <i>client</i></b> keeps a local window size per model id: it treats <code>claude-opus-4-8</code> as <b>200k</b> and <code>claude-opus-4-8[1m]</code> as <b>1M</b>. That only changes client-side behavior — the <code>/context</code> denominator and the <b>auto-compaction threshold</b> — not the actual API window.</li>
+</ul>
+<p style="margin:10px 0 0"><b>So:</b> "<code>[1m]</code>" is a <i>client label</i>, not an API model. The API truth is "plain model + optional <code>context-1m</code> header"; the <i>client</i> truth is "the label decides what Claude Code thinks your window is." Both matter — at different layers.</p>
+</div>
+
+<h2>8 · The response (the round-trip)</h2>
+<p>A non-streamed reply mirrors the request's block structure:</p>
+<pre>{
+  <span class="k">"id"</span>: <span class="s">"msg_01…"</span>,
+  <span class="k">"type"</span>: <span class="s">"message"</span>,
+  <span class="k">"role"</span>: <span class="s">"assistant"</span>,
+  <span class="k">"model"</span>: <span class="s">"claude-opus-4-8"</span>,
+  <span class="k">"content"</span>: [ {<span class="k">"type"</span>:<span class="s">"text"</span>, <span class="k">"text"</span>:<span class="s">"…"</span>} ],   <span class="c"># same block types as the request</span>
+  <span class="k">"stop_reason"</span>: <span class="s">"end_turn"</span>,                  <span class="c"># end_turn | max_tokens | tool_use | stop_sequence</span>
+  <span class="k">"usage"</span>: {
+    <span class="k">"input_tokens"</span>: 4,
+    <span class="k">"output_tokens"</span>: 27,
+    <span class="k">"cache_read_input_tokens"</span>: <span class="add">418221</span>,        <span class="c"># ← cached prefix (your 1M proof)</span>
+    <span class="k">"cache_creation_input_tokens"</span>: 0
+  }
+}</pre>
+<p>To continue the conversation, you <b>append this whole <code>assistant</code> message</b> (text + any <code>tool_use</code>/<code>thinking</code> blocks) onto <code>messages</code> and send the next request. The model is stateless; the array <i>is</i> the memory.</p>
+
+<h2>Mental model — the one-liner</h2>
+<div class="box good">
+<p style="margin:0;font-size:15.5px">The <b>envelope</b> (<span style="color:var(--hdr)">headers</span>) says <i>who you are, which API version, which beta features</i>. The <b>letter</b> (<span style="color:var(--body)">JSON body</span>) says <i>which model, the message history, and how to think</i>. The model lives in the <b>body</b>; the 1M window is a <b>header</b> (or native); and <code>[1m]</code> is a Claude-Code <i>label</i>, never an API model id.</p>
+</div>
+
+<div class="footer">
+Built for learning · claude-toolkit · anchored to real <code>POST /v1/messages</code> traffic captured on this machine 2026-06-26 · verified vs <code>platform.claude.com/docs/en/api/messages</code>
+</div>
+
+</div>
+</body>
+</html>
