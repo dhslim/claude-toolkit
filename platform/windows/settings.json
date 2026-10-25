@@ -108,6 +108,7 @@
     "padding": 1
   },
   "effortLevel": "xhigh",
+  "outputStyle": "Concise",
   "model": "opus[1m]",
   "autoUpdatesChannel": "latest",
   "cleanupPeriodDays": 3650,
