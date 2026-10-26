@@ -5,7 +5,8 @@
   "skipDangerousModePermissionPrompt": true,
   "env": {
     "CLAUDE_CODE_NO_FLICKER": "1",
-    "CLAUDE_CODE_EFFORT_LEVEL": "max"
+    "CLAUDE_CODE_EFFORT_LEVEL": "max",
+    "CLAUDE_CODE_DISABLE_MOUSE_CLICKS": "1"
   },
   "hooks": {
     "Stop": [
