@@ -146,7 +146,7 @@ explanation. The proxy isn't there to trim for you.
 **Detection**: check `netstat -ano | findstr :9999` on the target machine. If
 nothing is listening, the proxy isn't installed.
 
-**Fix**: re-run `python install_claude_proxy.py` on the target machine. See
+**Fix**: re-run `.venv/Scripts/python.exe install_claude_proxy.py` (or `.venv/bin/python` on macOS/Linux) on the target machine. See
 [Hardening option D](#d-cross-machine-installer-bundle) for making this easier.
 
 ### 2. Proxy venv path is hardcoded
@@ -202,7 +202,7 @@ your new terminals aren't routing to it.
 the output shows `claude` as an Application (claude.exe), the wrapper is
 missing. If it shows as Function, the wrapper is loaded.
 
-**Fix**: re-run `python install_claude_proxy.py` to restore the wrapper.
+**Fix**: re-run `.venv/Scripts/python.exe install_claude_proxy.py` (or `.venv/bin/python` on macOS/Linux) to restore the wrapper.
 
 ### 5. Claude Code version drift
 

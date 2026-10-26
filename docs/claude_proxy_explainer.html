@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>claude_proxy.py — architecture explainer</title>
+<style>
+  :root {
+    --bg: #fafaf7;
+    --fg: #1d1d1f;
+    --muted: #6b6b73;
+    --accent: #cc6633;
+    --accent-soft: #f4e8df;
+    --border: #e4e2dc;
+    --code-bg: #f3f1ec;
+    --good: #2f7d4a;
+    --bad: #c0392b;
+    --fast: #2a7ab8;
+    --slow: #b85c2a;
+    --new: #7e3f9e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font: 16px/1.6 -apple-system, "Segoe UI", system-ui, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 48px 32px 96px; }
+  header { border-bottom: 1px solid var(--border); padding-bottom: 24px; margin-bottom: 32px; }
+  header .crumb {
+    color: var(--muted); font-size: 13px; letter-spacing: .04em;
+    text-transform: uppercase; margin-bottom: 8px;
+  }
+  header h1 { margin: 0 0 12px; font-size: 34px; line-height: 1.2; }
+  header .lede { color: var(--muted); font-size: 17px; max-width: 700px; }
+  h2 {
+    margin: 56px 0 16px; font-size: 22px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  h3 { margin: 28px 0 8px; font-size: 17px; }
+  p { margin: 12px 0; }
+  code, pre, kbd {
+    font: 13px/1.5 "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  }
+  code { background: var(--code-bg); padding: 1px 6px; border-radius: 4px; font-size: .9em; }
+  pre {
+    background: var(--code-bg); padding: 14px 16px; border-radius: 8px;
+    overflow-x: auto; border: 1px solid var(--border);
+  }
+  pre code { background: none; padding: 0; }
+  .pill {
+    display: inline-block; padding: 2px 9px; border-radius: 10px;
+    font-size: 12px; font-weight: 600; letter-spacing: .02em;
+  }
+  .pill-fast { background: #dde9f3; color: var(--fast); }
+  .pill-slow { background: #f3e2d3; color: var(--slow); }
+  .pill-new { background: #ece0f3; color: var(--new); }
+  .pill-warn { background: #fbe5dc; color: var(--accent); }
+
+  /* Diagram */
+  .diagram { margin: 24px 0; text-align: center; }
+  .diagram svg { max-width: 100%; height: auto; }
+
+  /* Two-column compare */
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0; }
+  .card {
+    border: 1px solid var(--border); border-radius: 10px; padding: 20px;
+    background: white;
+  }
+  .card.fast { border-left: 4px solid var(--fast); }
+  .card.slow { border-left: 4px solid var(--slow); }
+  .card.new  { border-left: 4px solid var(--new);  background: #faf6fc; }
+  .card h3 { margin-top: 0; }
+  .card .stat { color: var(--muted); font-size: 13px; margin-top: 8px; }
+
+  /* Step list */
+  .steps { counter-reset: step; padding-left: 0; list-style: none; }
+  .steps li {
+    counter-increment: step;
+    position: relative;
+    padding: 10px 0 10px 44px;
+    border-bottom: 1px dashed var(--border);
+  }
+  .steps li:last-child { border-bottom: none; }
+  .steps li::before {
+    content: counter(step);
+    position: absolute; left: 0; top: 10px;
+    width: 28px; height: 28px; border-radius: 50%;
+    background: var(--accent-soft); color: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 13px;
+  }
+
+  /* Before/After block */
+  .ba {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+    margin: 16px 0;
+  }
+  .ba > div { border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
+  .ba .head { padding: 8px 14px; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+  .ba .before .head { background: #fbe5dc; color: var(--bad); }
+  .ba .after  .head { background: #def3e2; color: var(--good); }
+  .ba pre { margin: 0; border: none; border-radius: 0; background: var(--code-bg); }
+
+  /* Config table */
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  th, td { padding: 10px 12px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+  th { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  td code { white-space: nowrap; }
+
+  /* Callout */
+  .callout {
+    background: var(--accent-soft); border-left: 4px solid var(--accent);
+    padding: 14px 18px; border-radius: 6px; margin: 18px 0;
+  }
+  .callout .title { font-weight: 700; color: var(--accent); margin-bottom: 4px; }
+
+  footer { margin-top: 80px; padding-top: 20px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); }
+
+  @media (max-width: 640px) {
+    .compare, .ba { grid-template-columns: 1fr; }
+    .wrap { padding: 24px 18px 64px; }
+    header h1 { font-size: 26px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="crumb">claude-toolkit · architecture</div>
+  <h1>claude_proxy.py</h1>
+  <p class="lede">
+    A localhost proxy between Claude Code and <code>api.anthropic.com</code>.
+    It (a) keeps long sessions under the 1M-token cap by sliding a per-session
+    anchor forward, and (b) silently fixes a CC 2.1.145 bug where the first
+    prompt of every session crashes with a misleading "Context limit reached" banner.
+  </p>
+</header>
+
+<!-- ============== BIG PICTURE ============== -->
+<h2>1 · Big picture</h2>
+<p>
+  You point Claude Code at <code>http://localhost:9999</code> via the
+  <code>ANTHROPIC_BASE_URL</code> env var. The proxy is a FastAPI app that
+  catches every request, may rewrite it, then forwards to Anthropic and streams
+  the response back unchanged.
+</p>
+
+<div class="diagram">
+<svg viewBox="0 0 760 220" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1d1d1f"/>
+    </marker>
+  </defs>
+  <!-- CC box -->
+  <rect x="20" y="80" width="160" height="60" rx="8" fill="#dde9f3" stroke="#2a7ab8" stroke-width="1.5"/>
+  <text x="100" y="108" text-anchor="middle" font-size="15" font-weight="600">Claude Code</text>
+  <text x="100" y="126" text-anchor="middle" font-size="11" fill="#6b6b73">CLI / IDE</text>
+
+  <!-- Arrow 1 -->
+  <line x1="185" y1="110" x2="285" y2="110" stroke="#1d1d1f" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="235" y="100" text-anchor="middle" font-size="11" fill="#6b6b73">POST /v1/messages</text>
+
+  <!-- Proxy box -->
+  <rect x="290" y="60" width="200" height="100" rx="8" fill="#f4e8df" stroke="#cc6633" stroke-width="1.5"/>
+  <text x="390" y="86" text-anchor="middle" font-size="15" font-weight="600">claude_proxy.py</text>
+  <text x="390" y="104" text-anchor="middle" font-size="11" fill="#6b6b73">localhost:9999</text>
+  <text x="390" y="124" text-anchor="middle" font-size="11" fill="#6b6b73">· [1m] fix</text>
+  <text x="390" y="140" text-anchor="middle" font-size="11" fill="#6b6b73">· sliding-window trim</text>
+
+  <!-- Arrow 2 -->
+  <line x1="495" y1="110" x2="595" y2="110" stroke="#1d1d1f" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="545" y="100" text-anchor="middle" font-size="11" fill="#6b6b73">HTTPS</text>
+
+  <!-- Anthropic box -->
+  <rect x="600" y="80" width="140" height="60" rx="8" fill="#def3e2" stroke="#2f7d4a" stroke-width="1.5"/>
+  <text x="670" y="108" text-anchor="middle" font-size="15" font-weight="600">Anthropic</text>
+  <text x="670" y="126" text-anchor="middle" font-size="11" fill="#6b6b73">api.anthropic.com</text>
+
+  <!-- Return arrow -->
+  <path d="M 600 150 Q 390 200 185 150" fill="none" stroke="#1d1d1f" stroke-width="1.5" stroke-dasharray="4 4" marker-end="url(#arr)"/>
+  <text x="390" y="195" text-anchor="middle" font-size="11" fill="#6b6b73">streaming response (passed through verbatim)</text>
+</svg>
+</div>
+
+<!-- ============== TWO PATHS ============== -->
+<h2>2 · The two paths</h2>
+<p>
+  Every <code>/v1/messages</code> request is classified by body size. 99% of
+  traffic — quota checks, Haiku helper calls, small Opus requests — skips the
+  expensive token-counting work entirely.
+</p>
+
+<div class="compare">
+  <div class="card fast">
+    <div><span class="pill pill-fast">FAST PATH</span></div>
+    <h3>body &lt; 950 KB</h3>
+    <p>
+      BPE guarantees <code>tokens ≤ bytes</code>, so a body under 950 KB
+      <strong>cannot</strong> exceed the 1M-token cap. Forward as-is, zero
+      overhead.
+    </p>
+    <div class="stat">Covers ~99% of requests. ~0 ms added latency.</div>
+  </div>
+  <div class="card slow">
+    <div><span class="pill pill-slow">SLOW PATH</span></div>
+    <h3>body ≥ 950 KB</h3>
+    <p>
+      Apply this session's sliding-window anchor (drop everything before
+      <code>groups[anchor]</code>), call <code>count_tokens</code> for the exact
+      size, and shift the anchor forward if over 700 K tokens.
+    </p>
+    <div class="stat">~1% of requests. Adds one round-trip + a brief stall on shift.</div>
+  </div>
+</div>
+
+<!-- ============== SLIDING WINDOW ============== -->
+<h2>3 · The sliding-window mechanic</h2>
+<p>
+  Long sessions can't grow forever — Anthropic caps each request at 1M tokens.
+  The proxy solves this by maintaining one <strong>anchor</strong> per session:
+  an integer index into the list of "turn groups." Everything before
+  <code>groups[anchor]</code> is dropped before forwarding.
+</p>
+
+<h3>What is a turn group?</h3>
+<p>
+  A real user message followed by all assistant responses and tool round-trips
+  until the next real user message. Dropping <em>whole groups</em> preserves
+  three invariants Anthropic requires:
+</p>
+<ul>
+  <li>strict user / assistant alternation</li>
+  <li>every <code>tool_use</code> has its paired <code>tool_result</code></li>
+  <li>the first message in the array is always a real user message</li>
+</ul>
+
+<h3>The flow</h3>
+<ol class="steps">
+  <li>
+    <strong>Session key.</strong> Hash the first real user message text. This
+    is stable for the life of the session and resets on <code>/clear</code> or <code>/compact</code>.
+  </li>
+  <li>
+    <strong>Front-drop.</strong> Look up the session's current anchor in the
+    LRU <code>_session_watermarks</code> dict. Drop all groups before it.
+  </li>
+  <li>
+    <strong>Probe.</strong> Send the trimmed body to <code>/v1/messages/count_tokens</code> for the exact token count.
+  </li>
+  <li>
+    <strong>Maybe shift.</strong> If the count crosses <code>SHIFT_THRESHOLD</code> (700 K),
+    advance the anchor forward by <code>SHIFT_RATIO × remaining_groups</code> (default 0.5 = halve).
+  </li>
+  <li>
+    <strong>Rewrite cache markers.</strong> Move <code>cache_control: {type: "ephemeral"}</code>
+    to the new last cacheable block so Anthropic's prompt cache still hits.
+  </li>
+  <li>
+    <strong>Forward.</strong> Stream Anthropic's response straight back to Claude Code.
+  </li>
+</ol>
+
+<div class="callout">
+  <div class="title">Why halve, not slide by 1?</div>
+  Between shifts, the byte prefix stays identical → Anthropic's prompt cache
+  hits at ~99%. Each shift breaks the cache once and costs a 3–5 min slow turn,
+  but a half-drop buys ~500 K tokens of runway before the next one. On average
+  this works out to ~1 shift per 100–250 turns — about 1% slow-turn rate.
+</div>
+
+<h3>The count_tokens under-report</h3>
+<p>
+  Empirically, <code>/v1/messages/count_tokens</code> reports a smaller number
+  than the actual processing path uses — roughly 1.26× for mixed prose/code,
+  higher for code-dense bodies. On 2026-04-14 we saw a 413 "Request size
+  exceeds model context window" at <code>count_tokens = 791,826</code>, meaning
+  the real cost was over 1M.
+</p>
+<p>
+  That's why <code>SHIFT_THRESHOLD</code> defaults to <strong>700 K</strong>, not 900 K:
+  700 K × 1.3 expansion + 64 K <code>max_tokens</code> reservation ≈ 974 K real
+  ≈ just under the 1M cap.
+</p>
+
+<!-- ============== [1m] FIX ============== -->
+<h2>4 · The <code>[1m]</code> fix <span class="pill pill-new">NEW · 2026-05-21</span></h2>
+<p>
+  Claude Code 2.1.145 has a bug: on the <strong>first prompt</strong> of every
+  session, it sends a small ~317 B probe request with
+  <code>model = "claude-opus-4-7[1m]"</code> in the body — a literal,
+  non-existent model id — instead of using the proper
+  <code>anthropic-beta: context-1m-2025-08-07</code> header alongside the bare
+  <code>claude-opus-4-7</code> id.
+</p>
+<p>
+  Anthropic returns 404 (unknown model). CC misinterprets the 404 as the
+  context-limit error and shows the red banner
+  <strong>"Context limit reached / /clear to continue"</strong> on the
+  literally first prompt of a fresh session. On retry, CC silently falls back
+  to the bare model id and the request succeeds — so the symptom is an
+  intermittent banner that "goes away by itself."
+</p>
+
+<div class="ba">
+  <div class="before">
+    <div class="head">Before — what CC sends</div>
+<pre><code>POST /v1/messages
+anthropic-beta: prompt-caching-2024-07-31
+{
+  "model": "claude-opus-4-7[1m]",
+  "messages": [...]
+}
+↓
+404 Not Found  →  CC: "Context limit reached"</code></pre>
+  </div>
+  <div class="after">
+    <div class="head">After — what the proxy forwards</div>
+<pre><code>POST /v1/messages
+anthropic-beta: prompt-caching-2024-07-31,
+                context-1m-2025-08-07
+{
+  "model": "claude-opus-4-7",
+  "messages": [...]
+}
+↓
+200 OK  →  CC: works on first try</code></pre>
+  </div>
+</div>
+
+<p>
+  Implementation is one helper (<code>_normalize_cc_1m_suffix</code>) called
+  at the top of the request handler. It detects the <code>[1m]</code> suffix,
+  strips it, and appends <code>context-1m-2025-08-07</code> to the
+  comma-separated <code>anthropic-beta</code> header — deduping if already
+  present and collapsing any mixed-case duplicates.
+</p>
+
+<!-- ============== CONFIG ============== -->
+<h2>5 · Config knobs</h2>
+<table>
+  <thead>
+    <tr><th>Env var</th><th>Default</th><th>What it does</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>CLAUDE_PROXY_FAST_BYTES</code></td>
+      <td><code>950_000</code></td>
+      <td>Body size below which to skip the token check entirely.</td>
+    </tr>
+    <tr>
+      <td><code>CLAUDE_PROXY_SHIFT_THRESHOLD</code></td>
+      <td><code>700_000</code></td>
+      <td>count_tokens value above which the sliding window shifts forward.</td>
+    </tr>
+    <tr>
+      <td><code>CLAUDE_PROXY_SHIFT_RATIO</code></td>
+      <td><code>0.5</code></td>
+      <td>Fraction of remaining groups to drop per shift (0.5 = halve).</td>
+    </tr>
+    <tr>
+      <td><code>CLAUDE_PROXY_QUIET</code></td>
+      <td>unset</td>
+      <td>Log only trims and errors. Otherwise verbose mode is on.</td>
+    </tr>
+    <tr>
+      <td><code>CLAUDE_PROXY_LOG_FILE</code></td>
+      <td><code>proxy.log</code></td>
+      <td>Where stdout/stderr get redirected at startup.</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ============== ANATOMY ============== -->
+<h2>6 · Code anatomy</h2>
+<p>The file is 1,061 lines. The pieces that matter:</p>
+<table>
+  <thead>
+    <tr><th>Symbol</th><th>Line</th><th>Role</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>proxy()</code></td><td>847</td><td>The single FastAPI handler. Every request flows through it.</td></tr>
+    <tr><td><code>_normalize_cc_1m_suffix()</code></td><td>219</td><td>The <code>[1m]</code> fix.</td></tr>
+    <tr><td><code>trim_to_sliding_window()</code></td><td>729</td><td>Slow-path entry — calls count_tokens, decides whether to shift.</td></tr>
+    <tr><td><code>split_into_turn_groups()</code></td><td>289</td><td>Groups messages so we can drop whole turns at once.</td></tr>
+    <tr><td><code>rewrite_cache_control_markers()</code></td><td>624</td><td>Keeps Anthropic's prompt cache hitting after a shift.</td></tr>
+    <tr><td><code>session_key_for_messages()</code></td><td>364</td><td>Hashes the first real user message to identify the session.</td></tr>
+    <tr><td><code>count_tokens_via_anthropic()</code></td><td>547</td><td>Calls upstream <code>/v1/messages/count_tokens</code>.</td></tr>
+  </tbody>
+</table>
+
+<footer>
+  Generated 2026-05-21 from <code>C:\Users\user\Desktop\claude-toolkit\claude_proxy.py</code>.
+  Reflects commit <code>12a71d8</code> (the <code>[1m]</code> fix).
+</footer>
+
+</div>
+</body>
+</html>

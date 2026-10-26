@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Post-mortem: Clawd on Desk click-to-focus fails for claude-toolkit</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --panel2:#1c2330; --ink:#e6edf3; --muted:#9aa7b4;
+    --accent:#e8975a; --good:#3fb950; --bad:#f85149; --warn:#d29922; --line:#2a313c;
+    --mono:"Cascadia Code",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:920px;margin:0 auto;padding:40px 24px 80px}
+  h1{font-size:26px;line-height:1.25;margin:0 0 6px}
+  h2{font-size:19px;margin:38px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  h3{font-size:15px;margin:22px 0 8px;color:var(--accent)}
+  p{margin:10px 0}
+  .sub{color:var(--muted);margin:0 0 20px}
+  code{font-family:var(--mono);background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:.9em}
+  .hwnd{color:var(--accent);font-family:var(--mono)}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin:16px 0}
+  .tldr{background:linear-gradient(180deg,#1a2230,#161b22);border-left:3px solid var(--accent)}
+  .good{color:var(--good)} .bad{color:var(--bad)} .warn{color:var(--warn)} .muted{color:var(--muted)}
+  ul{margin:8px 0 8px 0;padding-left:22px} li{margin:6px 0}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:600}
+  td.mono,th.mono{font-family:var(--mono)}
+  .tag{display:inline-block;font-size:11px;font-family:var(--mono);padding:2px 8px;border-radius:999px;border:1px solid var(--line)}
+  .tag.ref{color:var(--bad);border-color:#5a2a2a;background:#2a1414}
+  .tag.con{color:var(--good);border-color:#244a2a;background:#11220f}
+  .flow{font-family:var(--mono);font-size:13px;background:#0b0e13;border:1px solid var(--line);border-radius:10px;padding:16px;overflow-x:auto;white-space:pre}
+  .pill{font-family:var(--mono);font-size:12px;color:var(--muted)}
+  .fix{border-left:3px solid var(--good)}
+  .footnote{color:var(--muted);font-size:12.5px;margin-top:30px;border-top:1px solid var(--line);padding-top:14px}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Why clicking the claude-toolkit card in <em>Clawd on Desk</em> never focuses it</h1>
+  <p class="sub">Post-mortem &middot; 2026-06-08 &middot; diagnosed via multi-agent investigation against Clawd's live <code>focus-debug.log</code> and Win32 window enumeration</p>
+
+  <div class="panel tldr">
+    <h3 style="margin-top:0">TL;DR</h3>
+    <p>All your VS&nbsp;Code project windows &mdash; claude-toolkit, dentalchart-backend2, JS010, sugaimprov &mdash; are <strong>separate top-level windows owned by one shared <code>Code.exe</code> process</strong> (PID&nbsp;10380, 9&nbsp;windows). To focus a session, Clawd walks up the process tree to that <code>Code.exe</code> and calls <code>Focus(Code.exe.MainWindowHandle)</code>. For a multi-window process, Windows returns <strong>whichever window is foreground</strong> as <code>MainWindowHandle</code>. Each session caches that handle on its <em>first</em> focus and replays it forever after. claude-toolkit's first focus happened while the dental window was up front, so it's pinned to <span class="hwnd">hwnd&nbsp;198468</span> (&ldquo;dentalchart-backend2&rdquo;) &mdash; <strong>claude-toolkit's real window <span class="hwnd">132958</span> is never targeted, not even once</strong>. The code that <em>could</em> pick the right window by title only runs on the Windows-Terminal path, never on the VS&nbsp;Code path. It's not the venv, hooks, proxy, or forking &mdash; all four were tested and refuted. A follow-up breadth audit found this hits <strong>4 of 6 live sessions across 4 projects</strong>, not just claude-toolkit.</p>
+  </div>
+
+  <h2>Symptom</h2>
+  <p>Clicking a Clawd session card is supposed to bring that session's terminal window forward. It works for whatever project you're already looking at, but clicking the <strong>claude-toolkit</strong> card does nothing &mdash; you stay on the dental project. Every session runs inside VS&nbsp;Code's integrated terminal, so terminal type is not the difference.</p>
+
+  <h2>Verified root cause</h2>
+  <p>VS&nbsp;Code multiplexes <em>many</em> workspace windows under a <strong>single</strong> <code>Code.exe</code> PID. Clawd's focus path for an editor session is:</p>
+
+  <div class="flow">click card  ─►  walk process tree up from the session's claude.exe
+            claude.exe ─► powershell.exe ─► Code.exe(28364, MainWindowHandle=0)
+                                         ─► <b>Code.exe(10380)</b>  ◄── owns 9 top-level windows
+                                                │
+                                                ▼
+                       Focus( Code.exe(10380).<b>MainWindowHandle</b> )
+                                                │
+   Windows returns the FOREGROUND window as MainWindowHandle  ──►  <span style="color:#f85149">198468  "dentalchart-backend2"</span>
+                                                                   <span style="color:#3fb950">132958  "claude-toolkit"  ← the right one, never chosen</span></div>
+
+  <p><code>Process.MainWindowHandle</code> on PID&nbsp;10380 returned <span class="hwnd">198468</span> on one probe and <span class="hwnd">132870</span> on a later one &mdash; it tracks the foreground window. The disambiguation helper that matches a window by title (<code>FindByPidTitles</code> / title candidates, which would correctly find the window titled &ldquo;claude-toolkit&rdquo;) is only invoked on the <strong>Windows-Terminal</strong> branches of the focus helper. The VS&nbsp;Code <code>parent-direct</code> path never calls it, so VS&nbsp;Code sessions are never disambiguated &mdash; they just get the shared process's arbitrary <code>MainWindowHandle</code>.</p>
+
+  <h3>The hard evidence (from <code>focus-debug.log</code> + live EnumWindows)</h3>
+  <table>
+    <tr><th>Project / session</th><th class="mono">targetHwnd Clawd focused</th><th>actual window</th></tr>
+    <tr><td>claude-toolkit</td><td class="mono bad">198468, 1116520(dead)</td><td>198468 = <span class="muted">"dentalchart-backend2"</span> (wrong)</td></tr>
+    <tr><td>sugaimprov-1824</td><td class="mono">198468, 1116520</td><td>same shared handles</td></tr>
+    <tr><td>JS010-1919</td><td class="mono">198468</td><td>same shared handle</td></tr>
+    <tr><td><span class="good">claude-toolkit's true window</span></td><td class="mono good">132958</td><td>"claude-toolkit - session_half_raw.py" &mdash; <strong>0 focus attempts</strong></td></tr>
+  </table>
+  <p class="pill">Code.exe PID&nbsp;10380 owns 9 visible top-level windows: 198468 dentalchart-backend2 &middot; 132958 claude-toolkit &middot; 132870 dentalchart-db-backup &middot; 264022 dentweb-migration &middot; 657196 dentalchart-frontend &middot; &hellip;</p>
+
+  <h2>Why do other repos work, then?</h2>
+  <p>Fair question &mdash; if Clawd just focuses the foreground window, why doesn't <em>every</em> background card fail? Because each session's target window is <strong>decided once and cached</strong>. The first time Clawd focuses a session it grabs <code>Code.exe.MainWindowHandle</code> &mdash; the window in front <em>at that instant</em> &mdash; and pins it in a per-session cache (key <code>agentId|sessionId</code>), replaying it on every later click. The cache only re-resolves if that window closes.</p>
+  <p>So each session draws a lottery ticket at its first focus:</p>
+  <ul>
+    <li><strong>dentalchart</strong>'s session first resolved while its <em>own</em> window was up front &rarr; cached <span class="hwnd">132870</span> (its own window) &rarr; its card works.</li>
+    <li><strong>claude-toolkit</strong>'s session first resolved while the dental window was up front &rarr; cached <span class="hwnd">198468</span> (dentalchart-backend2) &rarr; every click brings up dental, never claude-toolkit. The dental window stays open and valid, so the cache never re-resolves &mdash; it's stuck wrong.</li>
+  </ul>
+  <p>&ldquo;Other repos work&rdquo; is <strong>luck, not correctness</strong>. The verifier flagged that even dentalchart is &ldquo;not reliably correct either&rdquo; &mdash; any session can pin to a neighbour's window depending on what happened to be in front at its first focus.</p>
+
+  <h2>Breadth audit: 4 of 6 live sessions focus the wrong window</h2>
+  <p>A follow-up audit cross-referenced every live session's cached focus target against the real window inventory (8 VS&nbsp;Code windows, all under <code>Code.exe</code> PID&nbsp;10380). The mismatch is <strong>systemic</strong> &mdash; only 2 of 6 sessions land on the right window, and both of those are correct purely by luck of first-focus timing.</p>
+  <table>
+    <tr><th>Card / session</th><th>Project</th><th class="mono">Clawd focuses</th><th>which really is&hellip;</th><th>Verdict</th></tr>
+    <tr><td class="mono">ca7b1687</td><td>claude-toolkit</td><td class="mono">198468 (63%) + 1116520 dead</td><td>dentalchart-backend2 <span class="muted">(own window 132958 never hit)</span></td><td><span class="bad">wrong window</span></td></tr>
+    <tr><td class="mono">10bf922e</td><td>claude-toolkit</td><td class="mono">1116520 (100%)</td><td>nothing &mdash; handle is dead</td><td><span class="bad">no-op</span></td></tr>
+    <tr><td class="mono">f3894efd</td><td>sugaimprov-1824 <span class="muted">(worktree)</span></td><td class="mono">1116520 dead (57%) + 198468</td><td>dead / backend2; no own window open</td><td><span class="bad">no-op</span></td></tr>
+    <tr><td class="mono">64be6df2</td><td>faq-1902 <span class="muted">(worktree)</span></td><td class="mono">132870 (100%)</td><td>dentalchart-db-backup-tool</td><td><span class="bad">wrong window</span></td></tr>
+    <tr><td class="mono">554abbaa</td><td>JS010-1919 <span class="muted">(worktree)</span></td><td class="mono">198468 (100%)</td><td>its own (backend2 @2ca027a)</td><td><span class="good">correct (lucky)</span></td></tr>
+    <tr><td class="mono">8ac5198b</td><td>dentalchart-db-backup-tool</td><td class="mono">132870 (53%) + dead handles</td><td>its own window</td><td><span class="good">correct (lucky)</span></td></tr>
+  </table>
+  <p class="pill">Source: 1372-line focus-debug.log paired with live EnumWindows. claude-toolkit's correct window 132958 is a focus target 0 times in the entire log.</p>
+  <p><strong>Two failure flavours:</strong> <span class="bad">(a) wrong live window</span> &mdash; the click yanks you to a neighbour's window (claude-toolkit &rarr; backend2; faq-1902 &rarr; db-backup-tool); two unrelated cards even act as "focus magnets" (hwnd&nbsp;198468 is the cached target of 3 sessions). <span class="bad">(b) dead handle</span> &mdash; the cached window was closed, so the click focuses nothing and <em>never self-corrects</em> (the cache only re-resolves on a window-close event, which a dead handle never fires). Three closed windows (1116520, 1509914, 461238) are still being replayed.</p>
+  <p><strong>Worktree caveat:</strong> 3 of the 4 broken sessions are git worktrees of dentalchart-backend2. <code>sugaimprov-1824</code> and <code>faq-1902</code> have <em>no</em> VS&nbsp;Code window open at all, so no algorithm could focus "their" window until one exists. claude-toolkit is the cleanest case &mdash; a real, open window (132958) that is simply never chosen.</p>
+
+  <h2>What was ruled out</h2>
+  <p>Each alternative was independently probed and adversarially refuted against the live system:</p>
+  <table>
+    <tr><th>Hypothesis</th><th>Verdict</th><th>Why</th></tr>
+    <tr><td>Proxy / <code>cfork</code> / <code>cread</code> / <code>--fork-session</code> reparents claude.exe</td><td><span class="tag ref">refuted</span></td><td>All 4 live <code>claude.exe</code> have identical 4-hop trees <code>claude&nbsp;&rarr;&nbsp;powershell&nbsp;&rarr;&nbsp;Code.exe&nbsp;&rarr;&nbsp;Code.exe&nbsp;&rarr;&nbsp;explorer</code>, plain <code>claude.exe -c</code>, no fork flag. The python proxy is a <em>sibling</em> of claude, never an ancestor.</td></tr>
+    <tr><td>Heavy global toolkit hooks</td><td><span class="tag ref">refuted</span></td><td>Hooks are global, fire for every repo (incl. working dental), make zero Win32 window calls, and are siblings/descendants of claude &mdash; they can't change what an upward process walk resolves.</td></tr>
+    <tr><td>Cached-window fast-path is a no-op</td><td><span class="tag ref">refuted</span></td><td>The cache replays the <em>same</em> handle the walk produces; <code>targetHwnd==foregroundHwnd</code> is the <strong>success</strong> signature (the working path shows it too), not a no-op. It's at most a weak amplifier.</td></tr>
+    <tr><td>Stage-2 <code>/focus-tab</code> to the VS&nbsp;Code extension silently fails</td><td><span class="tag ref">refuted</span></td><td>Ports 23456-23460 are live; POSTing claude-toolkit's shell pid <code>33672</code> returned HTTP&nbsp;200 and the extension called <code>terminal.show()</code>. <code>pid_chain</code> does contain that pid. (This layer could still mis-target the tab once the window is right, but it is not the cause of the window-level failure.)</td></tr>
+    <tr><td>Windows foreground-lock / WT-vs-VSCode</td><td><span class="tag ref">refuted</span></td><td>Would affect all sessions equally; and all sessions are in VS&nbsp;Code anyway. The differentiator is window multiplexing under one PID, not terminal type.</td></tr>
+  </table>
+
+  <h2>Fixes</h2>
+
+  <div class="panel fix">
+    <h3 style="margin-top:0">1. Give claude-toolkit its own VS&nbsp;Code <em>process</em> &nbsp;<span class="pill">recommended, keeps your workflow</span></h3>
+    <p>A plain &ldquo;New Window&rdquo; won't help &mdash; it stays under the same <code>Code.exe</code> PID. Launch claude-toolkit with a separate user-data dir so it gets its own process and a single, unambiguous <code>MainWindowHandle</code>:</p>
+    <div class="flow">code --user-data-dir "C:\Users\user\.vscode-claude-toolkit" "C:\Users\user\Desktop\claude-toolkit"</div>
+    <p class="muted">That instance owns exactly one window, so <code>MainWindowHandle</code> can only be claude-toolkit's window. Click-to-focus then works. Trade-off: that window has its own extension/setting profile.</p>
+  </div>
+
+  <div class="panel fix">
+    <h3 style="margin-top:0">2. Run claude-toolkit's <code>claude</code> in a standalone Windows&nbsp;Terminal</h3>
+    <p>Clawd's Windows-Terminal focus path captures a real per-window handle <em>and</em> disambiguates by window title, so it targets the correct window. Trade-off: you give up the integrated-terminal workflow for this repo.</p>
+  </div>
+
+  <div class="panel fix">
+    <h3 style="margin-top:0">3. Upstream fix in Clawd (the real bug)</h3>
+    <p>On the <code>parent-direct</code> path, when the resolved ancestor is <code>Code.exe</code> with multiple top-level windows, enumerate that PID's windows and pick the one whose title contains the session's cwd basename &mdash; reusing the <code>FindByPidTitles</code> title-matching Clawd already runs on the Windows-Terminal branch &mdash; instead of blindly focusing <code>MainWindowHandle</code>. Location: <code>...\Clawd on Desk\resources\app.asar</code> (focus helper / <code>makeFocusCmd</code> / <code>buildWindowsTitleCandidates</code>). Invasive (requires repacking the asar); best filed upstream.</p>
+  </div>
+
+  <h2>Confirm it</h2>
+  <p>Open claude-toolkit via fix&nbsp;#1, click its card, and tail <code>C:\Users\user\AppData\Roaming\clawd-on-desk\focus-debug.log</code> &mdash; <code>targetHwnd</code> should now be a handle unique to claude-toolkit, no longer the shared <span class="hwnd">198468</span>/<span class="hwnd">1116520</span>.</p>
+
+  <div class="footnote">
+    Investigation: 10 agents, 5 parallel probes + adversarial verification, ~822k tokens. Ground-truth sources: <code>%APPDATA%\clawd-on-desk\focus-debug.log</code>, <code>session-debug.log</code>; <code>app.asar</code> focus helper; live <code>Get-CimInstance Win32_Process</code> + <code>EnumWindows</code>. The synthesizer's first answer ("one shared window with tabs") was itself refuted in verification &mdash; the windows are separate, but collapsed onto one PID's <code>MainWindowHandle</code>.
+  </div>
+
+</div>
+</body>
+</html>

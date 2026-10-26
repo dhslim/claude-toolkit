@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>quiz_data.py — filter messages in the DB, not on the client</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --ink:#e6e8eb; --muted:#9aa3af; --accent:#f08a5d; --good:#69d18a; --bad:#ef6f6f; --line:#2a2f3a; --code:#0b0d11; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",Arial,sans-serif; line-height:1.6; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 40px 24px 80px; }
+  h1 { font-size: 26px; margin: 0 0 6px; }
+  h2 { font-size: 20px; margin: 38px 0 12px; padding-bottom:6px; border-bottom:1px solid var(--line); }
+  h3 { font-size: 15px; margin: 22px 0 8px; color: var(--accent); }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 28px; }
+  p, li { font-size: 15px; }
+  code, pre { font-family:"SF Mono","JetBrains Mono",Consolas,monospace; }
+  code { background:var(--code); padding:1px 5px; border-radius:4px; font-size: 13px; color:#dfe6ee; }
+  pre { background:var(--code); border:1px solid var(--line); border-radius:8px; padding:14px 16px; overflow-x:auto; font-size:12.5px; line-height:1.5; color:#cdd6e0; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px 20px; margin:14px 0; }
+  table { width:100%; border-collapse:collapse; margin:14px 0; font-size:13.5px; }
+  th,td { text-align:left; padding:9px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; }
+  .good { color:var(--good); } .bad { color:var(--bad); } .accent { color:var(--accent); } .muted { color:var(--muted); }
+  .flow { font-family:"SF Mono",Consolas,monospace; white-space:pre; background:var(--code); border:1px solid var(--line); border-radius:8px; padding:16px; font-size:12.5px; color:#cdd6e0; overflow-x:auto; }
+  .note { border-left:3px solid var(--accent); padding:6px 14px; margin:14px 0; background:rgba(240,138,93,0.06); }
+  .right { text-align:right; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>quiz_data.py — filter messages in the DB, not on the client</h1>
+<div class="sub">claude-toolkit &middot; 2026-06-21 &middot; daily-quiz data fetcher</div>
+
+<div class="panel">
+<strong>One line:</strong> The daily-quiz source fetcher filtered by <span class="bad">session start time</span>, so long-running sessions that were active yesterday but <em>started</em> days ago were silently excluded &mdash; feeding the quiz generator <span class="bad">15</span> of <span class="good">72</span> real messages and forcing a slow ~12&nbsp;min client-side fallback. Fix: match on each <span class="good">message's</span> timestamp inside a MongoDB aggregation &mdash; no <code>session_started_at</code> gate, and only the messages we need cross the wire.
+</div>
+
+<h2>1. What this script does</h2>
+<p><code>quiz_data.py</code> feeds the daily quiz: it pulls <em>yesterday's</em> conversation messages from the shared MongoDB <code>sessions</code> collection so the quiz-generator agent can write questions grounded in real work. Every session document holds a <code>messages</code> array; each message has its own <code>role</code>, <code>content</code>, and <code>timestamp</code>.</p>
+
+<h2>2. The bug — a session-level gate on message-level data</h2>
+<p>Sessions are long-lived. One Claude Code session can run for <em>weeks</em> (this very <code>claude-toolkit</code> session started 2026-05-24). What matters for "yesterday's activity" is the timestamp of each <strong>message</strong>, not when its <strong>session</strong> began. The old code conflated the two:</p>
+<pre>three_days_ago = now - timedelta(days=3)
+sessions = db['sessions'].find({
+    'session_started_at': {'$gte': three_days_ago, '$lte': end}   # &lt;-- session-level gate
+})
+# ...then pull EVERY message of each matched session and filter in Python</pre>
+<p>An earlier fix widened this gate from "started yesterday" to "started within 3 days" &mdash; but a gate on <code>session_started_at</code> still drops any session that <em>began</em> more than 3 days ago, no matter how active it was yesterday. So the longest-running, highest-activity sessions were exactly the ones thrown away.</p>
+
+<h2>3. The evidence (yesterday, 2026-06-20)</h2>
+<table>
+<tr><th>Session</th><th>Started</th><th class="right">Msgs in window</th><th>Kept by old code?</th></tr>
+<tr><td>/Projects/youtube-map-api (mac)</td><td>2026-06-20</td><td class="right">10</td><td class="good">kept</td></tr>
+<tr><td>/Projects/axe238 (mac)</td><td>2026-06-20</td><td class="right">21</td><td class="good">kept</td></tr>
+<tr><td>/Projects/youmap (mac)</td><td>2026-06-20</td><td class="right">3</td><td class="good">kept</td></tr>
+<tr><td>/Projects/claude-toolkit (mac)</td><td>2026-05-24</td><td class="right">134</td><td class="bad">DROPPED</td></tr>
+<tr><td>\Desktop\youtube-map-api (win)</td><td>2026-05-20</td><td class="right">35</td><td class="bad">DROPPED</td></tr>
+<tr><td>\Desktop\claude-toolkit (win)</td><td>2026-06-08</td><td class="right">23</td><td class="bad">DROPPED</td></tr>
+<tr><td>\Desktop\axe238 (win)</td><td>2026-06-10</td><td class="right">21</td><td class="bad">DROPPED</td></tr>
+<tr><td colspan="2"><strong>Totals</strong></td><td class="right"><strong>247</strong></td><td><span class="good">34 kept</span> / <span class="bad">213 dropped (86%)</span></td></tr>
+</table>
+<p class="muted">Of the in-window messages, the conversational user/assistant ones with real text are what the quiz actually uses: the old gate delivered <span class="bad">~15</span> of those; the fix delivers <span class="good">72</span> &mdash; and from <em>all 7</em> sessions, not just the 3 that happened to start yesterday.</p>
+
+<h2>4. Two problems this caused</h2>
+<ul>
+<li><strong>Thin / "0 messages" quizzes.</strong> The generator got a sliver of the day (often stale meta), so questions were weak or it reported no data.</li>
+<li><strong>~12-minute quiz generation.</strong> Warned about the gap, the agent fell back to a manual full-collection scan + bulk analysis of ~212 messages &mdash; the entire 725&nbsp;s runtime was that fallback, not the quiz logic.</li>
+</ul>
+
+<h2>5. The fix — match the messages, server-side</h2>
+<p>Replace the <code>find()</code> + local Python loop with an aggregation pipeline that filters on the <strong>message</strong> timestamp and returns only the matching messages. No <code>session_started_at</code> gate exists anywhere.</p>
+<pre>db.sessions.aggregate([
+  # sessions with &ge;1 message in yesterday's KST window (matched on the message)
+  { $match:  { "messages.timestamp": { $gte: start, $lt: end } } },
+  { $unwind: "$messages" },
+  # keep only the in-window user/assistant messages
+  { $match:  { "messages.timestamp": { $gte: start, $lt: end },
+               "messages.role": { $in: ["user","assistant"] } } },
+  { $sort:   { "messages.timestamp": 1 } },
+  # regroup by session for presentation
+  { $group:  { _id: "$session_id", project: { $first: "$project" },
+               device: { $first: "$device" },
+               messages: { $push: { role: "$messages.role",
+                                    content: "$messages.content" } } } },
+  { $sort:   { _id: 1 } }
+])</pre>
+<p class="muted">Timestamps are ISO-8601 strings, which sort lexicographically, so the range match works as a plain string comparison. The window is a half-open KST day <code>[00:00 yesterday, 00:00 today)</code> converted to UTC.</p>
+
+<h2>6. The principle</h2>
+<div class="note">Let the database do the filtering. Ask for <strong>exactly the rows you need</strong> &mdash; don't drag whole documents over the wire and sift them on the client. The old path transferred entire <code>messages</code> arrays for every recent session, then discarded most in Python; the new path returns only the in-window messages, with no gate that can silently exclude the data you actually want.</div>
+
+<h2>7. Before / after</h2>
+<div class="flow">OLD   find(session_started_at within 3d) ──▶ pull WHOLE sessions ──▶ filter messages in Python
+      └─ drops sessions started &gt;3d ago  ⇒  15 msgs, 3 sessions, ~12 min (fallback)
+
+NEW   aggregate(match messages.timestamp) ──▶ unwind ──▶ match in-window ──▶ group by session
+      └─ no session gate, server-side only  ⇒  72 msgs, 7 sessions, instant</div>
+
+<p class="sub" style="margin-top:34px">Optional: a multikey index on <code>messages.timestamp</code> keeps the first <code>$match</code> fast as the collection grows (negligible at today's 213 sessions).</p>
+
+</div>
+</body>
+</html>

@@ -143,11 +143,17 @@ These settings make Claude Code's `Ctrl+O → [` workflow as smooth as possible 
 {
   "env": {
     "CLAUDE_CODE_NO_FLICKER": "1"
-  }
+  },
+  "tui": "fullscreen",
+  "autoScrollEnabled": false
 }
 ```
 
-Explicitly setting `=1` future-proofs against Anthropic ever flipping the default. Even though it's the default since v2.1.89, having it explicit means your config is intentional and survives version changes.
+| Key | Why |
+|---|---|
+| `env.CLAUDE_CODE_NO_FLICKER: "1"` | Default since v2.1.89, but setting it explicit future-proofs against Anthropic flipping the default. |
+| `tui: "fullscreen"` | Equivalent to `CLAUDE_CODE_NO_FLICKER=1` but a first-class setting. Belt-and-suspenders — if anything ever overrides the env var with `tui: "default"`, you're back in the legacy renderer and the next key silently does nothing. |
+| `autoScrollEnabled: false` | Stops the conversation view from auto-jumping to the bottom every time a token streams in. Without this, scrolling up to read older content is instantly undone on the next assistant chunk. **Gotcha:** per the binary's schema, this setting takes effect **only in fullscreen mode** — that's why `tui: "fullscreen"` must be explicit alongside it. Setting `autoScrollEnabled: false` while in legacy mode is silently ignored. |
 
 ### `%APPDATA%\Code\User\settings.json` (Windows) or `~/.config/Code/User/settings.json` (Linux/Mac)
 

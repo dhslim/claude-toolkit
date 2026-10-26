@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>"Context limit reached" investigation — 2026-05-22</title>
+<style>
+  :root {
+    --bg: #fafaf7;
+    --fg: #1d1d1f;
+    --muted: #6b6b73;
+    --accent: #cc6633;
+    --accent-soft: #f4e8df;
+    --border: #e4e2dc;
+    --code-bg: #f3f1ec;
+    --good: #2f7d4a;
+    --good-soft: #def3e2;
+    --bad: #c0392b;
+    --bad-soft: #fbe5dc;
+    --bug-a: #2a7ab8;
+    --bug-a-soft: #dde9f3;
+    --bug-b: #b85c2a;
+    --bug-b-soft: #f3e2d3;
+    --info: #7e3f9e;
+    --info-soft: #ece0f3;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font: 16px/1.6 -apple-system, "Segoe UI", system-ui, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 48px 32px 96px; }
+  header { border-bottom: 1px solid var(--border); padding-bottom: 24px; margin-bottom: 32px; }
+  header .crumb {
+    color: var(--muted); font-size: 13px; letter-spacing: .04em;
+    text-transform: uppercase; margin-bottom: 8px;
+  }
+  header h1 { margin: 0 0 12px; font-size: 30px; line-height: 1.25; }
+  header .lede { color: var(--muted); font-size: 17px; max-width: 760px; }
+  header .meta {
+    font-size: 13px; color: var(--muted); margin-top: 14px;
+  }
+  h2 {
+    margin: 56px 0 16px; font-size: 22px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  h3 { margin: 28px 0 8px; font-size: 17px; }
+  h4 { margin: 20px 0 6px; font-size: 14px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  p { margin: 12px 0; }
+  code, pre, kbd {
+    font: 13px/1.5 "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  }
+  code { background: var(--code-bg); padding: 1px 6px; border-radius: 4px; font-size: .9em; }
+  pre {
+    background: var(--code-bg); padding: 14px 16px; border-radius: 8px;
+    overflow-x: auto; border: 1px solid var(--border);
+  }
+  pre code { background: none; padding: 0; }
+  .pill {
+    display: inline-block; padding: 2px 9px; border-radius: 10px;
+    font-size: 12px; font-weight: 600; letter-spacing: .02em;
+  }
+  .pill-bug-a { background: var(--bug-a-soft); color: var(--bug-a); }
+  .pill-bug-b { background: var(--bug-b-soft); color: var(--bug-b); }
+  .pill-fixed { background: var(--good-soft); color: var(--good); }
+  .pill-deferred { background: var(--info-soft); color: var(--info); }
+  .pill-new { background: var(--accent-soft); color: var(--accent); }
+
+  /* TL;DR box */
+  .tldr {
+    background: var(--accent-soft); border-left: 4px solid var(--accent);
+    padding: 18px 22px; border-radius: 6px; margin: 18px 0 32px;
+  }
+  .tldr h3 { margin-top: 0; color: var(--accent); }
+  .tldr ol { margin: 6px 0 0; padding-left: 22px; }
+  .tldr li { margin: 6px 0; }
+
+  /* Comparison cards */
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0; }
+  .compare.three { grid-template-columns: 1fr 1fr 1fr; }
+  .card {
+    border: 1px solid var(--border); border-radius: 10px; padding: 18px;
+    background: white;
+  }
+  .card.bug-a { border-left: 4px solid var(--bug-a); }
+  .card.bug-b { border-left: 4px solid var(--bug-b); }
+  .card.fixed { border-left: 4px solid var(--good); }
+  .card.deferred { border-left: 4px solid var(--info); }
+  .card.pre { border-left: 4px solid var(--muted); }
+  .card.cur { border-left: 4px solid var(--bad); background: #fbf6f4; }
+  .card.new { border-left: 4px solid var(--good); background: #f4faf6; }
+  .card h3 { margin-top: 0; }
+  .card .stat { color: var(--muted); font-size: 13px; margin-top: 8px; }
+
+  /* Before/After */
+  .ba { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 16px 0; }
+  .ba > div { border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
+  .ba .head { padding: 8px 14px; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+  .ba .before .head { background: var(--bad-soft); color: var(--bad); }
+  .ba .after .head { background: var(--good-soft); color: var(--good); }
+  .ba pre { margin: 0; border: none; border-radius: 0; background: var(--code-bg); }
+
+  /* Timeline */
+  .timeline { border-left: 2px solid var(--border); margin: 24px 0 24px 8px; padding-left: 24px; }
+  .timeline .step {
+    position: relative; padding: 6px 0 18px;
+  }
+  .timeline .step::before {
+    content: ""; position: absolute; left: -32px; top: 10px;
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid var(--bg);
+  }
+  .timeline .step .when {
+    font-size: 12px; color: var(--muted); letter-spacing: .03em; margin-bottom: 4px;
+  }
+  .timeline .step .what { font-weight: 600; margin-bottom: 4px; }
+  .timeline .step .why { color: var(--muted); font-size: 14px; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  th, td { padding: 10px 12px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; font-size: 14px; }
+  th { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  td code { white-space: nowrap; }
+
+  /* Callouts */
+  .callout {
+    background: var(--accent-soft); border-left: 4px solid var(--accent);
+    padding: 14px 18px; border-radius: 6px; margin: 18px 0;
+  }
+  .callout.info { background: var(--bug-a-soft); border-color: var(--bug-a); }
+  .callout.warn { background: var(--bad-soft); border-color: var(--bad); }
+  .callout .title { font-weight: 700; margin-bottom: 4px; }
+  .callout.info .title { color: var(--bug-a); }
+  .callout.warn .title { color: var(--bad); }
+
+  /* SVG diagram */
+  .diagram { margin: 24px 0; text-align: center; }
+  .diagram svg { max-width: 100%; height: auto; }
+
+  footer { margin-top: 80px; padding-top: 20px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); }
+  footer a { color: var(--accent); }
+
+  @media (max-width: 720px) {
+    .compare, .compare.three, .ba { grid-template-columns: 1fr; }
+    .wrap { padding: 24px 18px 64px; }
+    header h1 { font-size: 22px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="crumb">claude-toolkit · post-mortem</div>
+  <h1>"Context limit reached" — investigation &amp; fix</h1>
+  <p class="lede">
+    A morning of intermittent <code>Context limit reached / /clear to continue</code>
+    banners on the STT2 work session turned out to be <strong>two distinct bugs</strong>
+    masquerading as the same error. This is the trace of how we untangled them and
+    what we shipped.
+  </p>
+  <div class="meta">
+    2026-05-22 · session <code>d7e890bd</code> · proxy commits to follow · related:
+    <a href="claude_proxy_explainer.html"><code>claude_proxy_explainer.html</code></a>
+  </div>
+</header>
+
+<!-- =================== TL;DR =================== -->
+<div class="tldr">
+  <h3>TL;DR</h3>
+  <ol>
+    <li><strong>Two bugs, same banner.</strong> The "Context limit reached" red banner has at least two unrelated root causes: a malformed <code>[1m]</code> quota probe from CC, and the proxy's sliding-window halve not being aggressive enough on huge sessions.</li>
+    <li><strong>Bug B shipped a real fix.</strong> Replaced the proxy's "drop ratio of current" trim with <em>slice-to-target</em> using a hard cap constant. Always lands at a predictable size; no more 400s from over-cap.</li>
+    <li><strong>Bug A is deferred.</strong> Proxy correctly rewrites <code>[1m]</code> but Anthropic still 4xxs the rewritten quota probe. Workaround pending: short-circuit the probe at the proxy. CC self-recovers via retry meanwhile.</li>
+    <li><strong>Observability added.</strong> KST timestamps on every proxy log line, plus dedicated forensic dump files for both failure modes. If either bug recurs, the post-mortem data writes itself.</li>
+  </ol>
+</div>
+
+<!-- =================== THE SYMPTOM =================== -->
+<h2>1 · The symptom</h2>
+
+<p>
+  User's morning prompt on the STT2 session — &gt;26 MB JSONL, near "Context low (0% remaining)" in CC's UI — landed this red banner immediately:
+</p>
+
+<pre><code>okay so we need to turn on the FE 3000 again and check again
+the issues we talked about before is working properly now ?
+  └ Context limit reached · /clear to continue</code></pre>
+
+<p>
+  After ~10 s, CC silently retried the same prompt and the real response came through. Same pattern repeated several times during the day across different prompts in the same session. CC's local accounting bar said 0% remaining, but <code>/context</code> told a different story.
+</p>
+
+<div class="callout warn">
+  <div class="title">The lie in the error message</div>
+  CC shows "Context limit reached" for <em>any</em> non-200 response on the first attempt of a turn — even if the failure has nothing to do with context. This is the heart of the confusion. By the time the banner appears, you cannot tell from the UI whether you actually hit a context cap or whether something else is broken.
+</div>
+
+<!-- =================== TWO BUGS =================== -->
+<h2>2 · Two distinct bugs underneath</h2>
+
+<div class="compare">
+  <div class="card bug-a">
+    <div><span class="pill pill-bug-a">BUG A</span> <span class="pill pill-deferred">DEFERRED</span></div>
+    <h3>CC quota probe with malformed <code>[1m]</code> model id</h3>
+    <p>
+      On certain trigger moments (session start, near-context-low events), CC sends a tiny
+      <code>{"model": "claude-opus-4-7[1m]", "max_tokens": 1, "messages": [{"role": "user", "content": "quota"}]}</code>
+      probe.
+    </p>
+    <p>
+      <code>claude-opus-4-7[1m]</code> is not a valid Anthropic model id. Anthropic returns <code>404</code> (unknown model) or <code>429</code> (rate limit on the probe path).
+    </p>
+    <p>
+      CC misreads the 4xx as "Context limit reached," shows the banner, then silently retries the <em>real</em> messages call (which uses the bare id) — and succeeds.
+    </p>
+    <div class="stat">Class: known (multiple GitHub issues). Specific mechanism: not in any public issue we found.</div>
+  </div>
+  <div class="card bug-b">
+    <div><span class="pill pill-bug-b">BUG B</span> <span class="pill pill-fixed">FIXED TODAY</span></div>
+    <h3>Sliding-window halve insufficient on huge sessions</h3>
+    <p>
+      For a real <code>/v1/messages</code> with a 2.6 M-token body, the proxy's sliding-window <code>SHIFT</code> dropped 50% of current → landed at 1.46 M tokens. Still over Anthropic's 1 M cap → <code>400 "prompt is too long"</code>.
+    </p>
+    <p>
+      CC fires auto-compact (10 s), retries with a shorter list; proxy halves again → 761 K → 200 OK.
+    </p>
+    <p>
+      Same banner as Bug A. Same self-recovery. Different root cause.
+    </p>
+    <div class="stat">Lived in the proxy since the Apr 14 refactor swapped <code>TOKEN_BUDGET</code> for <code>SHIFT_RATIO</code>.</div>
+  </div>
+</div>
+
+<!-- =================== INVESTIGATION TIMELINE =================== -->
+<h2>3 · Investigation timeline</h2>
+
+<div class="timeline">
+  <div class="step">
+    <div class="when">First framing</div>
+    <div class="what">"Did our recent fix break something?"</div>
+    <div class="why">User saw <code>API Error: Unable to connect to API (ConnectionRefused)</code> in a screenshot. Initial hypothesis: the morning's <code>[1m]</code> rewrite commit broke proxy startup. <strong>False.</strong> Proxy was up; <code>proxy.err.log</code> was stale from April. ConnectionRefused was a transient blip during a manual restart window.</div>
+  </div>
+  <div class="step">
+    <div class="when">Re-anchor</div>
+    <div class="what">Old screenshots also showed "Context limit reached"</div>
+    <div class="why">The banner kept appearing even after the proxy was confirmed healthy on PID 7996 (loaded with the <code>[1m]</code> fix). So the fix wasn't sufficient.</div>
+  </div>
+  <div class="step">
+    <div class="when">Add forensic dump #1</div>
+    <div class="what">Capture the rewritten request + Anthropic's response</div>
+    <div class="why">Modified proxy to write <code>proxy_1m_dump.json</code> on the next <code>[1m]</code>-rewrite 4xx. Trigger: fresh CC session. Captured a real probe at 10:49 KST.</div>
+  </div>
+  <div class="step">
+    <div class="when">First "aha"</div>
+    <div class="what">The request isn't a "1M context probe" — it's a <em>quota check</em></div>
+    <div class="why">The dump body was literally <code>{"messages": [{"role": "user", "content": "quota"}], "max_tokens": 1}</code>. CC just happens to tag every quota check with <code>[1m]</code> by mistake. The rewrite to bare id + beta header is correct — but Anthropic's <em>quota path</em> rate-limits it (429) or doesn't recognize the combination (404 with empty body).</div>
+  </div>
+  <div class="step">
+    <div class="when">Separate banner instance</div>
+    <div class="what">An STT2 prompt produced the banner with a totally different cause</div>
+    <div class="why">Traced via <code>proxy.log</code>: 9.3 MB body, 5,356 msgs, SHIFT trimmed 2.64 M → 1.46 M tok → Anthropic 400 "prompt is too long: 1458123 &gt; 1000000". The sliding window's halve undershoots when starting size is over ~2 M tok. The next request (after CC auto-compact) shifted again to 761 K → 200 OK. Bug B identified.</div>
+  </div>
+  <div class="step">
+    <div class="when">User's mental model challenge</div>
+    <div class="what">"I'm pretty sure the 0.5 means 'fraction of cap', not 'fraction of current'?"</div>
+    <div class="why">Checked git history. Pre-refactor (<code>1ff4a94</code>, Mar 30) used <code>TOKEN_BUDGET</code> = 700 K with a binary-search-to-fit, which IS user's mental model. Refactor <code>fec7ffc</code> (Apr 14) swapped to threshold+ratio for cache stability — at the cost of unpredictable trim sizes. User's instinct was right about the original design; the current behavior was the regression.</div>
+  </div>
+  <div class="step">
+    <div class="when">Design synthesis</div>
+    <div class="what">Slice-to-target: combine the predictability of pre-refactor with the cache-stability of current</div>
+    <div class="why">Three explicit constants: <code>HARD_CAP_TOKENS</code>, <code>SHIFT_TRIGGER</code>, <code>SHIFT_RATIO</code>. <code>SHIFT_RATIO</code> now means "fraction of <code>HARD_CAP</code> to settle at" (target), not "fraction of current to drop." One slice, always lands at the target, regardless of starting size. Plus a safety re-shift loop for when the per-group estimate undershoots.</div>
+  </div>
+  <div class="step">
+    <div class="when">Ship + instrument</div>
+    <div class="what">Slice-to-target implemented; observability added for both bugs</div>
+    <div class="why">Bug B's fix is live (proxy started 14:01 KST, PID 38664 — though see "manual restart" note below). KST timestamps on every proxy log line; <code>proxy_over_cap_dump.json</code> mirrors the <code>[1m]</code> dump for Bug B recurrences. Bug A's short-circuit fix deferred — CC's auto-retry papers over it, and the proper fix needs more design.</div>
+  </div>
+</div>
+
+<!-- =================== THE FIX (BUG B) =================== -->
+<h2>4 · The Bug B fix: slice-to-target sliding window</h2>
+
+<h3>The three constants</h3>
+<table>
+  <thead>
+    <tr><th>Constant</th><th>Default</th><th>Role</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>HARD_CAP_TOKENS</code></td>
+      <td><code>1_000_000</code></td>
+      <td>Anthropic's actual ceiling. Anything over → 400. Immutable; this is the API's number, not ours.</td>
+    </tr>
+    <tr>
+      <td><code>SHIFT_TRIGGER</code></td>
+      <td><code>700_000</code></td>
+      <td>The <code>count_tokens</code> value above which a shift fires. Leaves ~300 K headroom under the cap.</td>
+    </tr>
+    <tr>
+      <td><code>SHIFT_RATIO</code></td>
+      <td><code>0.5</code></td>
+      <td>Target size as a fraction of <code>HARD_CAP</code>. <code>0.5 × 1M = 500K</code>. One slice from any starting size lands here.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Three designs side by side</h3>
+
+<div class="compare three">
+  <div class="card pre">
+    <h3>Pre-refactor (Mar 30)</h3>
+    <h4>One constant: <code>TOKEN_BUDGET</code></h4>
+    <p>Binary search every turn: find the largest <code>n</code> such that "keep last <code>n</code> groups" fits under <code>TOKEN_BUDGET</code>.</p>
+    <p><strong>Always under cap.</strong> But trims every turn → byte prefix shifts every turn → <strong>cache miss every turn</strong> → 3–5 min slow turns.</p>
+  </div>
+  <div class="card cur">
+    <h3>Current (Apr 14 – this morning)</h3>
+    <h4>Two: <code>SHIFT_THRESHOLD</code> + <code>SHIFT_RATIO</code></h4>
+    <p>Trim only when over threshold. When triggered, drop <code>SHIFT_RATIO × remaining</code> tokens. <code>0.5</code> = halve.</p>
+    <p><strong>Cache-stable</strong> between shifts. But result is <strong>unpredictable</strong> — halving a 2.6 M-token request lands at 1.3 M, still over cap → 400.</p>
+  </div>
+  <div class="card new">
+    <h3>New (today)</h3>
+    <h4>Three: <code>HARD_CAP</code> + <code>SHIFT_TRIGGER</code> + <code>SHIFT_RATIO</code></h4>
+    <p>Trim only when over trigger. When triggered, <strong>slice down to <code>HARD_CAP × SHIFT_RATIO</code></strong> tokens. Safety loop verifies and shifts further if estimate undershot.</p>
+    <p><strong>Always under cap. Always at predictable size. Cache-stable between shifts.</strong> Best of both.</p>
+  </div>
+</div>
+
+<h3>What changes in the log</h3>
+
+<div class="ba">
+  <div class="before">
+    <div class="head">Before (current behavior)</div>
+<pre><code>✂ sliding-window [SHIFT]:
+  2,638,136 tok → 1,458,118 tok
+  anchor 0 → 577
+← 400  in 10297ms
+✗ 400 error body:
+  prompt is too long: 1458123 &gt; 1000000
+  → CC auto-compacts, retries
+  → second SHIFT lands at 761K → 200 OK
+  → user sees the banner once + 10s wait</code></pre>
+  </div>
+  <div class="after">
+    <div class="head">After (slice-to-target)</div>
+<pre><code>✂ sliding-window [SHIFT]:
+  2,638,136 tok → 500,000 tok  (target)
+  anchor 0 → ~800  (slice to target)
+← 200  in ~5000ms
+  → no banner
+  → no 10s wait
+  → no extra round-trip
+
+(if estimate undershot:)
+↻ safety re-shift: anchor → 801,
+  tokens → 487,000  (1 extra step(s))
+← 200 OK</code></pre>
+  </div>
+</div>
+
+<!-- =================== OBSERVABILITY =================== -->
+<h2>5 · Observability added <span class="pill pill-new">NEW</span></h2>
+
+<p>So that future incidents post-mortem themselves:</p>
+
+<table>
+  <thead>
+    <tr><th>What</th><th>Where</th><th>Why</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>KST timestamps on every proxy log line</td>
+      <td><code>proxy.log</code> — format <code>[YYYY-MM-DD HH:MM:SS KST] [proxy] …</code></td>
+      <td>Lets you correlate banner moments in CC chat to proxy events. Previously the proxy log had no times, just ordered events.</td>
+    </tr>
+    <tr>
+      <td><code>proxy_1m_dump.json</code></td>
+      <td>Project root</td>
+      <td>Captures the full request + Anthropic response for the next <code>[1m]</code>-rewrite 4xx. Survives until next overwrite.</td>
+    </tr>
+    <tr>
+      <td><code>proxy_over_cap_dump.json</code></td>
+      <td>Project root</td>
+      <td>Captures the same for any <code>400 "prompt is too long"</code>. If Bug B's fix ever fails, this fires.</td>
+    </tr>
+    <tr>
+      <td><code>↻ safety re-shift</code> log line</td>
+      <td><code>proxy.log</code></td>
+      <td>Fires only when the per-group estimate undershot and the safety loop had to shift further. Greppable for tuning the <code>1.26x</code> under-report constant.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout info">
+  <div class="title">Re-derived key finding (kept)</div>
+  Anthropic's <code>/v1/messages/count_tokens</code> systematically <strong>under-reports</strong> vs. the real processing token count by ~1.26× for prose/code (more for code-dense). We observed a 413 at <code>count_tokens=791,826</code> on 2026-04-14. This is why <code>HARD_CAP × 0.5 = 500K</code> target is genuinely safe: <code>500K × 1.3 ≈ 650K real ≪ 1M</code>.
+</div>
+
+<!-- =================== STILL OPEN =================== -->
+<h2>6 · What's still open</h2>
+
+<table>
+  <thead>
+    <tr><th>Item</th><th>Status</th><th>Why deferred</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Bug A: short-circuit quota probe in proxy</td>
+      <td><span class="pill pill-deferred">DEFERRED</span></td>
+      <td>CC's auto-retry hides it. Fix is small (return synthetic 200 for <code>content="quota" &amp;&amp; max_tokens==1</code>), but worth verifying that synthetic-200 doesn't break any downstream CC assumption. Not blocking real work.</td>
+    </tr>
+    <tr>
+      <td>File an Anthropic-side bug for the <code>[1m]</code> quota mechanism</td>
+      <td><span class="pill pill-deferred">OPTIONAL</span></td>
+      <td>Our <code>proxy_1m_dump.json</code> is hard evidence none of the public issues have. Filing would need a polished repro + redaction pass.</td>
+    </tr>
+    <tr>
+      <td>Auto-reload for <code>claude_proxy.py</code> on file change</td>
+      <td><span class="pill pill-deferred">DEFERRED</span></td>
+      <td>Not iterating on the proxy often enough to justify the trade-offs (lost session anchors, syntax-error crashes). Documented in <code>memory/project_proxy_reload_deferred.md</code>.</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- =================== LESSONS =================== -->
+<h2>7 · Lessons</h2>
+
+<ol>
+  <li><strong>"Same symptom" ≠ "same bug."</strong> The banner is overloaded — any 4xx triggers it. Diagnosing required separating the failure modes from the UX.</li>
+  <li><strong>Read the existing investigation notes first.</strong> The proxy file's docstrings and inline comments held key findings (the <code>1.26×</code> under-report, the cache_control ordering rule). Skimming those <em>before</em> proposing a fix would have saved redoing the design rationale.</li>
+  <li><strong>Production refactors trade.</strong> The Apr 14 swap from <code>TOKEN_BUDGET</code> → <code>SHIFT_RATIO</code> won cache stability and lost predictability. The fix isn't "revert" — it's combine both with a third constant.</li>
+  <li><strong>Don't auto-restart the proxy from inside a CC session.</strong> Disrupts every active session on the machine. Wrapper handles cold starts gracefully when a fresh terminal opens.</li>
+  <li><strong>Capture forensics before assuming.</strong> The <code>proxy_1m_dump.json</code> revealed the probe was a "quota" check, not a "1M context" probe. The earlier commit message I wrote about Bug A was partially wrong as a result.</li>
+</ol>
+
+<footer>
+  Written 2026-05-22 KST. Session <code>d7e890bd</code>. Source files affected:
+  <code>claude_proxy.py</code> (slice-to-target + observability), <code>hook_inject_time.py</code>,
+  <code>.gitignore</code>, plus runtime artifacts that stay out of the repo.
+  For the proxy's general architecture see
+  <a href="claude_proxy_explainer.html"><code>claude_proxy_explainer.html</code></a>.
+</footer>
+
+</div>
+</body>
+</html>

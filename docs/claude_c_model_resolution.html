@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>How `claude -c` Resolves the Model (and the proxy's vestigial [1m] rewrite)</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2230; --line:#30363d;
+    --ink:#e6edf3; --dim:#9aa7b4; --faint:#6e7b8a;
+    --you:#3fb950; --cc:#58a6ff; --clawd:#bc8cff; --proxy:#f0883e;
+    --api:#ff7b72; --model:#39d0c8; --warn:#e3b341;
+    --code:#0a0e14;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+       padding:0 0 80px}
+  .wrap{max-width:1000px;margin:0 auto;padding:0 22px}
+  header.hero{padding:46px 22px 30px;text-align:center;border-bottom:1px solid var(--line);
+       background:radial-gradient(900px 300px at 50% -40%,rgba(88,166,255,.13),transparent)}
+  h1{font-size:29px;margin:0 0 8px;letter-spacing:-.4px}
+  h1 .accent{color:var(--cc)}
+  .sub{color:var(--dim);font-size:16px;max-width:720px;margin:0 auto}
+  h2{font-size:21px;margin:46px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  h3{font-size:16px;margin:26px 0 8px;color:var(--ink)}
+  p{color:#c9d3de}
+  code,.mono{font-family:"JetBrains Mono",Consolas,monospace}
+  code{background:var(--code);padding:1.5px 6px;border-radius:5px;font-size:.88em;color:#f0c674}
+  .lead{color:var(--dim)}
+  .small{font-size:13px;color:var(--faint)}
+  ol,ul{color:#c9d3de}
+
+  .cast{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-top:18px}
+  .card{background:var(--panel);border:1px solid var(--line);border-left-width:4px;
+        border-radius:10px;padding:15px 16px}
+  .card h4{margin:0 0 4px;font-size:15px;display:flex;align-items:center;gap:8px}
+  .card .role{font-size:12px;color:var(--faint);text-transform:uppercase;letter-spacing:.5px}
+  .card p{margin:8px 0 0;font-size:13.5px;color:#c2ccd6}
+  .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+  .b-you{border-left-color:var(--you)} .b-cc{border-left-color:var(--cc)}
+  .b-clawd{border-left-color:var(--clawd)} .b-proxy{border-left-color:var(--proxy)}
+  .b-api{border-left-color:var(--api)} .b-model{border-left-color:var(--model)}
+  .d-you{background:var(--you)} .d-cc{background:var(--cc)} .d-clawd{background:var(--clawd)}
+  .d-proxy{background:var(--proxy)} .d-api{background:var(--api)} .d-model{background:var(--model)}
+  .tag{font-family:monospace;font-size:11px;color:var(--faint)}
+
+  .flow{display:flex;flex-direction:column;gap:0;margin:22px 0;background:var(--panel);
+        border:1px solid var(--line);border-radius:12px;padding:22px 18px}
+  .node{display:flex;align-items:center;gap:14px;padding:11px 14px;border-radius:9px;
+        border:1px solid var(--line);background:var(--panel2)}
+  .node .ic{width:34px;height:34px;border-radius:8px;flex:0 0 34px;display:grid;place-items:center;
+        font-weight:700;color:#0d1117;font-size:13px}
+  .node .nm{font-weight:600}
+  .node .ds{color:var(--dim);font-size:13px}
+  .arrow{display:flex;flex-direction:column;align-items:center;color:var(--faint);padding:3px 0}
+  .arrow .lbl{font-size:11.5px;font-family:monospace;color:var(--cc);background:var(--code);
+        padding:2px 8px;border-radius:20px;border:1px solid var(--line)}
+  .arrow .ln{font-size:18px;line-height:1}
+  .ic-cc{background:var(--cc)} .ic-proxy{background:var(--proxy)} .ic-api{background:var(--api)}
+  .ic-disk{background:var(--model)}
+
+  .box{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin:16px 0}
+  .box.amber{border-color:#5c4424;background:linear-gradient(180deg,rgba(240,136,62,.07),transparent)}
+  .box.warn{border-color:#5c4d24;background:linear-gradient(180deg,rgba(227,179,65,.07),transparent)}
+  .box.good{border-color:#1f4d2b;background:linear-gradient(180deg,rgba(63,185,80,.07),transparent)}
+  .box.blue{border-color:#1f3a5c;background:linear-gradient(180deg,rgba(88,166,255,.07),transparent)}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:9px;padding:14px 16px;
+      overflow:auto;font-family:"JetBrains Mono",Consolas,monospace;font-size:12.5px;line-height:1.55;color:#cdd9e5}
+  .k{color:#7ee787} .s{color:#a5d6ff} .c{color:#6e7b8a} .m{color:#f0c674} .del{color:#ff7b72}
+  .add{color:#7ee787}
+
+  .ba{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}
+  @media(max-width:680px){.ba{grid-template-columns:1fr}}
+  .ba .half h4{margin:0 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.5px}
+  .bad h4{color:var(--api)} .ok h4{color:var(--you)}
+
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:var(--dim);font-weight:600}
+  td code{font-size:.85em}
+  .pill{display:inline-block;font-size:11px;font-family:monospace;padding:1px 7px;border-radius:20px;
+        border:1px solid var(--line);color:var(--dim)}
+  .yes{color:var(--you);font-weight:600} .no{color:var(--api);font-weight:600}
+  .vbadge{display:inline-block;font-size:10.5px;font-family:monospace;padding:1px 7px;border-radius:4px;
+        border:1px solid var(--line);margin-left:6px;vertical-align:middle}
+  .v-conf{color:var(--you);border-color:#1f4d2b;background:rgba(63,185,80,.08)}
+  .v-corr{color:var(--warn);border-color:#5c4d24;background:rgba(227,179,65,.08)}
+  .footer{margin-top:50px;padding-top:18px;border-top:1px solid var(--line);color:var(--faint);font-size:12.5px}
+  .toc{columns:2;column-gap:30px;font-size:13.5px;margin:6px 0 0}
+  @media(max-width:680px){.toc{columns:1}}
+  .toc a{color:var(--cc);text-decoration:none}
+  .toc a:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <h1>How <span class="accent">claude -c</span> Resolves the Model</h1>
+  <p class="sub">Why a resumed session comes back on whatever model it last <i>answered</i> with — proven by reverse-engineering the Claude Code binary — and why the proxy's <code>[1m]</code> rewrite turns out to be vestigial.</p>
+</header>
+
+<div class="wrap">
+
+<div class="box" style="margin-top:26px">
+<p class="small" style="margin:0 0 6px;text-transform:uppercase;letter-spacing:.5px">Contents</p>
+<div class="toc">
+  <a href="#s1">1 · Summary &amp; headline</a><br>
+  <a href="#s2">2 · The question &amp; why it matters</a><br>
+  <a href="#s3">3 · How <code>claude -c</code> resolves the model</a><br>
+  <a href="#s4">4 · The proxy <code>[1m]</code> rewrite (vestigial)</a><br>
+  <a href="#s5">5 · The 1M-context mechanism</a><br>
+  <a href="#s6">6 · Implications &amp; takeaways</a><br>
+  <a href="#s7">7 · Open questions</a>
+</div>
+</div>
+
+<!-- ============================================================= -->
+<h2 id="s1">1 · Summary &amp; the headline finding</h2>
+
+<div class="box blue">
+<p style="margin:0;font-size:15.5px">
+<b><code>claude -c</code> / <code>--continue</code> picks the resumed model by reading the <code>message.model</code> field of the <b>last genuine <code>type:"assistant"</code> line</b> in the resumed transcript JSONL</b> — not <code>settings.json</code>, not <code>~/.claude.json</code>, not an env var, and not the floating default. The model you get back is the one that last <i>produced a reply</i> in that session.
+</p>
+</div>
+
+<p class="lead">The full headline, end to end:</p>
+<div class="box">
+<p style="margin:0">
+<code>claude -c</code> resolves the resumed model from the <b>last <code>assistant</code> message's <code>message.model</code></b> in the transcript JSONL (proven by reverse-engineering the Claude Code 2.1.193 binary, and independently reproduced on the local 2.1.195 build) — not from settings/env/default. The proxy's <code>[1m]&nbsp;→&nbsp;header</code> rewrite is <b>vestigial</b> on current Claude Code: real messages never invoke it and the throwaway startup probe fails harmlessly. And <code>[1m]</code> maps to the <code>anthropic-beta: context-1m-2025-08-07</code> header — which is <b>redundant for Opus 4.8 because that model carries 1M natively</b> (bare <code>claude-opus-4-8</code> requests were observed accepting up to ~699k tokens at HTTP 200).
+</p>
+</div>
+
+<!-- ============================================================= -->
+<h2 id="s2">2 · The question &amp; why it matters</h2>
+
+<p>The symptom that started this: a session reopened with <code>claude -c</code> kept coming back on the "wrong" model. The label in the terminal would read <b>"Opus 4.8"</b> on a resume but <b>"Opus 4.8 (1M context)"</b> on a fresh launch — and at one point a session whose <code>settings.json</code> said <code>"sonnet"</code> resumed as <b>Haiku</b>. Three actors were suspects:</p>
+
+<div class="cast">
+  <div class="card b-cc">
+    <div class="role">the agent · decides the model</div>
+    <h4><span class="dot d-cc"></span> Claude Code (CC)</h4>
+    <p>Turns the conversation into an HTTP request and <b>chooses the model string</b>. <code>-c</code> is its <code>--continue</code> flag: resume the last conversation in the current directory.</p>
+  </div>
+  <div class="card b-proxy">
+    <div class="role">your code · localhost</div>
+    <h4><span class="dot d-proxy"></span> claude_proxy.py — "Sluice" <span class="tag">:9999</span></h4>
+    <p>Every CC request flows through it. It rewrites a <code>[1m]</code> model suffix into a header and trims oversized context. <b>It does not touch model resolution.</b></p>
+  </div>
+  <div class="card b-disk" style="border-left-color:var(--model)">
+    <div class="role">on disk · the transcript</div>
+    <h4><span class="dot d-model"></span> The session JSONL</h4>
+    <p><code>~/.claude/projects/&lt;slug&gt;/&lt;sessionId&gt;.jsonl</code> — one line per message. Each <code>assistant</code> line carries a <code>message.model</code>. <b>This is where <code>-c</code> reads the model from.</b></p>
+  </div>
+</div>
+
+<p>It mattered because the user feared the 1M window was silently collapsing back to 200k on every resume. The investigation had to separate three independent things that were being conflated: (a) <b>which model</b> a resume restores, (b) what the proxy's <code>[1m]</code> rewrite actually does, and (c) how the 1M window is really switched on. They turn out to have different answers — and only one of them is even a real problem (and not for Opus 4.8).</p>
+
+<!-- ============================================================= -->
+<h2 id="s3">3 · How <code>claude -c</code> resolves the model <span class="vbadge v-conf">confirmed · binary RE</span></h2>
+
+<p class="lead">The decision is made entirely inside Claude Code, from the transcript on disk. No setting, env var, or proxy is consulted on the default resume path.</p>
+
+<h3>The three functions that do it</h3>
+<p>The mechanism lives in three compiled functions plus a gate. Bun-minification renames them per build, so the symbols differ between versions — but the string literals and control flow are identical. Below, the <span style="color:var(--cc)">2.1.193</span> names (from the Windows binary RE) are paired with the <span style="color:var(--model)">2.1.195</span> names (independently reproduced on the local Mac build):</p>
+
+<table>
+  <tr><th>Role</th><th>2.1.193</th><th>2.1.195</th><th>What it does</th></tr>
+  <tr><td>Baseline resolver</td><td><code>l0i</code></td><td><code>V6</code></td><td>Provisional model, precedence <code>--model</code> &gt; agent frontmatter &gt; <code>ANTHROPIC_MODEL</code> &gt; <code>settings.json .model</code> &gt; floating default. <b>No transcript here.</b></td></tr>
+  <tr><td>Resume override</td><td><code>Sdc</code></td><td><code>Gbc</code></td><td>Scans messages <b>backwards</b>, returns the last genuine assistant message's <code>message.model</code>.</td></tr>
+  <tr><td>Wrapper + apply</td><td><code>nKe</code></td><td><code>CYe</code></td><td>Calls the override and, unless gated, forces the transcript model into app state as <code>mainLoopModel</code>.</td></tr>
+  <tr><td>Override gate</td><td><code>mGo</code></td><td><code>MKo</code></td><td>Skips the restore when <code>--model</code> or <code>ANTHROPIC_MODEL</code> is set.</td></tr>
+</table>
+
+<h3>The resume override — the heart of it</h3>
+<p>After the transcript is deserialized, this scans from the tail and returns the model of the last real assistant line (skipping <code>isMeta</code> lines and the synthetic-model sentinel, bound literally as <code>&lt;synthetic&gt;</code>):</p>
+
+<pre><span class="c">// Sdc (2.1.193) / Gbc (2.1.195) — the resume override</span>
+<span class="k">for</span>(<span class="k">let</span> s=e.length-<span class="m">1</span>; s&gt;=<span class="m">0</span>; s--){
+  <span class="k">let</span> i=e[s];
+  <span class="k">if</span>(i?.type!==<span class="s">"assistant"</span> || i.isMeta || i.message.model===FC) <span class="k">continue</span>;  <span class="c">// FC = "&lt;synthetic&gt;" sentinel</span>
+  <span class="k">let</span> a=i.message.model;
+  ...
+  <span class="k">return</span> {kind:<span class="s">"ok"</span>, model:a};                          <span class="c">// &lt;- last API-call model</span>
+}</pre>
+
+<p>The wrapper applies that into session state — but only if the gate allows:</p>
+<pre><span class="c">// mGo (2.1.193) / MKo (2.1.195) — the gate</span>
+<span class="k">function</span> mGo(){ <span class="k">return</span> Boolean(My()!==<span class="k">void</span> <span class="m">0</span> || process.env.ANTHROPIC_MODEL || !Xu()) }  <span class="c">// skip restore if --model / env set</span>
+
+<span class="c">// nKe (2.1.193) / CYe (2.1.195) — the apply</span>
+<span class="k">let</span> x=nKe(S,_.mainLoopModel, warn);
+<span class="k">let</span> k=x ? rKe(S,x,fork) : <span class="k">void</span> <span class="m">0</span>;
+<span class="k">if</span>(k) n(X=&gt;({...X, mainLoopModel:k}));   <span class="c">// session model := last assistant message's model</span></pre>
+
+<p>A telemetry event named <code>tengu_resume_model_restore</code> is emitted right here — this is a deliberate "resume model restore" feature, not an accident. (In 2.1.195 the literal <code>tengu_resume_model_restore</code> appears 6 times and is emitted inside the apply function.)</p>
+
+<h3>Why a <i>send</i> is required to "commit" a model</h3>
+<div class="box">
+<p style="margin-top:0">Only an actual API call appends an <code>assistant</code> line carrying a <code>model</code> field to the JSONL. <code>/model</code> alone writes <code>settings.json .model</code> and sets an in-memory <code>mainLoopModelOverride</code> — but it produces <b>no transcript line</b>. On a fresh <code>-c</code>, the in-memory override is gone, so the resume override walks the transcript and picks the last model that <i>produced a response</i>.</p>
+<p style="margin-bottom:0">That is exactly why <code>settings.json</code> said <code>sonnet</code> yet <code>-c</code> came back Haiku: the last assistant line in that transcript was Haiku, and the apply overrode the settings baseline.</p>
+</div>
+
+<h3>What it does <i>not</i> use</h3>
+<div class="ba">
+  <div class="half bad">
+    <h4>✗ On the default resume path, ignored</h4>
+    <pre><span class="del">settings.json  ".model"</span>
+<span class="del">~/.claude.json (lastModelUsage)</span>
+<span class="del">the floating default model</span>
+<span class="c"># the baseline resolver reads</span>
+<span class="c"># settings/env, but the resume</span>
+<span class="c"># override supersedes it.</span></pre>
+  </div>
+  <div class="half ok">
+    <h4>✓ What it reads</h4>
+    <pre><span class="add">last assistant line's</span>
+<span class="add">  message.model</span>
+<span class="c"># in the resumed transcript:</span>
+<span class="c"># ~/.claude/projects/&lt;slug&gt;/</span>
+<span class="c">#   &lt;sessionId&gt;.jsonl</span></pre>
+  </div>
+</div>
+
+<div class="box warn">
+<h3 style="margin-top:0">⚠ Precision caveat — the gate</h3>
+<p style="margin-bottom:0"><b>"NOT an env var" is only true absent an explicit override.</b> The gate (<code>mGo</code>/<code>MKo</code>) deliberately <b>skips</b> the transcript restore when <code>--model</code> or <code>ANTHROPIC_MODEL</code> is present — so those <i>can</i> override the transcript model. The accurate statement is: <i>the default resume path uses the transcript model rather than settings/floating-default; a per-launch <code>--model</code> (or <code>ANTHROPIC_MODEL</code>) beats it.</i> The baseline resolver itself still reads <code>settings.json</code> / <code>ANTHROPIC_MODEL</code> — it is the resume override that wins on a plain <code>-c</code>.</p>
+</div>
+
+<h3>The evidence chain</h3>
+<table>
+  <tr><th>Step</th><th>What was done</th><th>Result</th></tr>
+  <tr><td>Black-box seed</td><td><code>settings.json</code> said <code>"sonnet"</code>; ran <code>claude -c</code></td><td>Resumed as <b>Haiku</b> → settings is not the source</td></tr>
+  <tr><td>Binary RE (2.1.193)</td><td>Reverse-engineered the 231&nbsp;MB Bun-compiled Windows binary; traced <code>l0i</code>/<code>Sdc</code>/<code>nKe</code></td><td>Found the last-assistant-line mechanism</td></tr>
+  <tr><td>Independent repro (2.1.195)</td><td>Same logic found in the local 224&nbsp;MB Mac build: <code>V6</code>/<code>Gbc</code>/<code>CYe</code>/<code>MKo</code>, snippets near character-for-character</td><td>Reproduces on a different OS/arch/version</td></tr>
+  <tr><td>Transcript check</td><td>Inspected ~12 local <code>*.jsonl</code> files</td><td>Every assistant line carries a <b>bare</b> <code>message.model</code> (e.g. <code>claude-opus-4-8</code>, <code>claude-haiku-4-5-20251001</code>); the <code>&lt;synthetic&gt;</code> sentinel appears as expected</td></tr>
+  <tr><td>Cross-platform</td><td>Separate Ubuntu box, CC 2.1.162, no proxy</td><td><code>claude -c</code> → "Opus 4.8"; plain <code>claude</code> → "Opus 4.8 (1M context)" — identical behavior, so it's stock CC</td></tr>
+</table>
+
+<h3>The <code>[1m]</code> / alias handling</h3>
+<p>The JSONL stores the <b>bare</b> API id (<code>claude-opus-4-8</code>). On restore, the override re-appends the tag when the configured model carries it:</p>
+<pre><span class="k">return</span> {kind:<span class="s">"ok"</span>, model:a+<span class="s">"[1m]"</span>};   <span class="c">// re-append the 1M tag</span></pre>
+<p>Aliases are parsed by <code>parseUserSpecifiedModel</code>, stripped to API form by <code>normalizeModelStringForAPI</code> / <code>strip1mTag</code>. The string literals <code>parseUserSpecifiedModel</code>, <code>normalizeModelStringForAPI</code>, <code>strip1mTag</code>, and <code>&lt;synthetic&gt;</code> all exist verbatim in the 2.1.195 build. <span class="small">(Minor: the digest mapped <code>"default"</code> resolution to <code>ry()</code>; in 2.1.195 <code>ry()</code> is the <code>--model</code> override getter and the floating-default fallback is a different function — a cross-version mangled-name imprecision that doesn't change the behavior.)</span></p>
+
+<!-- ============================================================= -->
+<h2 id="s4">4 · The proxy <code>[1m]</code> rewrite — and why it's vestigial</h2>
+
+<p class="lead">Separate from model resolution: the proxy ("Sluice", <code>claude_proxy.py</code> on :9999) rewrites a <code>[1m]</code> model suffix into a header. Here is exactly what it touches, and the finding that it is no longer load-bearing.</p>
+
+<h3>The function — the only place the proxy touches the model field <span class="vbadge v-conf">confirmed</span></h3>
+<p><code>_normalize_cc_1m_suffix()</code> (<code>claude_proxy.py</code> L297–325) is the <b>only</b> code in the whole proxy that mutates <code>body["model"]</code> or adds <code>context-1m</code> to the header. Verbatim:</p>
+
+<pre><span class="k">def</span> <span class="m">_normalize_cc_1m_suffix</span>(body: <span class="k">dict</span>, headers_dict: <span class="k">dict</span>) -&gt; <span class="k">bool</span>:
+    model = body.get(<span class="s">"model"</span>, <span class="s">""</span>)
+    <span class="k">if not</span> (<span class="k">isinstance</span>(model, <span class="k">str</span>) <span class="k">and</span> model.endswith(<span class="s">"[1m]"</span>)):
+        <span class="k">return</span> <span class="k">False</span>
+    body[<span class="s">"model"</span>] = model[: -<span class="k">len</span>(<span class="s">"[1m]"</span>)]
+    ...
+    <span class="k">if</span> <span class="s">"context-1m-2025-08-07"</span> <span class="k">not in</span> betas:
+        betas.append(<span class="s">"context-1m-2025-08-07"</span>)
+    headers_dict[<span class="s">"anthropic-beta"</span>] = <span class="s">","</span>.join(betas)
+    <span class="k">return</span> <span class="k">True</span></pre>
+
+<p>Its docstring documents the original rationale and notably <b>predates this investigation</b> — it still references CC&nbsp;2.1.145 and model <code>claude-opus-4-7</code>:</p>
+<pre><span class="c">"""Strip CC 2.1.145's malformed [1m] suffix on model id; move to anthropic-beta.
+
+Claude Code 2.1.145 sends model="claude-opus-4-7[1m]" instead of using the
+proper anthropic-beta: context-1m-2025-08-07 header. Anthropic returns 404
+because that model id doesn't exist, and CC misinterprets the 404 as
+"Context limit reached / /clear to continue" on the FIRST prompt of a
+session.
+"""</span></pre>
+
+<div class="box warn">
+<h3 style="margin-top:0">⚠ The log line is stale</h3>
+<p style="margin-bottom:0">The call site (L1017–1030, guarded by a plain <code>if body:</code>) hard-codes its log text to the 4-7 era regardless of the actual model:</p>
+<pre style="margin-top:10px;margin-bottom:0">[proxy] 🔧 rewrote model=claude-opus-4-7[1m] → claude-opus-4-7 + anthropic-beta: context-1m-2025-08-07</pre>
+<p style="margin-bottom:0;margin-top:10px">The function itself is model-agnostic (it strips any trailing <code>[1m]</code>), so it still works on <code>claude-opus-4-8[1m]</code> — but every <code>🔧 rewrote</code> line <b>misreports</b> the family as 4-7. A skeptic grepping the log for the model would be misled.</p>
+</div>
+
+<h3>The session-startup quota probe <span class="vbadge v-corr">corrected from digest</span></h3>
+<p>The <code>[1m]</code> suffix only ever appears on one request: a tiny probe Claude Code fires <b>once per session launch</b> (not per-message, not on a timer). It's a cheap quota/rate-limit check — CC wants the <code>anthropic-ratelimit-*</code> response headers, not the answer. Captured verbatim on the wire (<code>proxy_1m_dump.json</code>, 2026-06-27 16:29 KST), this is the request <b>as the proxy forwarded it</b> (the <code>[1m]</code> already stripped):</p>
+
+<pre><span class="c"># User-Agent: claude-cli/2.1.195 (external, cli)</span>
+<span class="c"># POST https://api.anthropic.com/v1/messages?beta=true   body_size: 324</span>
+{
+  <span class="k">"model"</span>: <span class="s">"claude-opus-4-8"</span>,            <span class="c"># CC sent "...4-8[1m]"; proxy stripped it</span>
+  <span class="k">"max_tokens"</span>: <span class="m">1</span>,
+  <span class="k">"messages"</span>: [{ <span class="k">"role"</span>: <span class="s">"user"</span>, <span class="k">"content"</span>: <span class="s">"quota"</span> }],
+  <span class="k">"metadata"</span>: { <span class="k">"user_id"</span>: <span class="s">"{\"device_id\":...,\"account_uuid\":...,\"session_id\":...}"</span> }
+}</pre>
+
+<p>Corrections applied from on-disk verification of the digest's earlier figures:</p>
+<ul>
+  <li>Body is <b>324 bytes</b> on the wire (post-rewrite), not the ~317 the digest repeated — the 4-byte difference is the stripped <code>[1m]</code>.</li>
+  <li>Live User-Agent is <code>claude-cli/2.1.195</code> (the Windows box was 2.1.193) — version is per-machine.</li>
+  <li><code>metadata.user_id</code> is a <b>nested JSON blob</b> (<code>device_id</code> / <code>account_uuid</code> / <code>session_id</code>), not a bare redacted string.</li>
+  <li>The proxy does <b>not</b> merely forward the probe: because CC emits <code>model=claude-opus-4-8[1m]</code>, <code>_normalize_cc_1m_suffix</code> strips the <code>[1m]</code> and ensures <code>context-1m-2025-08-07</code> is in the header before forwarding. CC builds the request; the proxy mutates it.</li>
+</ul>
+
+<h3>Two code paths — only one ships <code>[1m]</code> <span class="vbadge v-conf">confirmed</span></h3>
+<table>
+  <tr><th>Request</th><th>model field on the wire</th><th>1M signal</th><th>Proxy action</th></tr>
+  <tr><td>Real message (system + tools + thinking)</td><td><code>claude-opus-4-8</code> (plain)</td><td><code>context-1m-2025-08-07</code> in the <b>header</b></td><td>passes through untouched</td></tr>
+  <tr><td>Quota probe (~324&nbsp;B at startup)</td><td><code>claude-opus-4-8[1m]</code> (suffix!)</td><td>the <code>[1m]</code> suffix</td><td>strips <code>[1m]</code> → header</td></tr>
+</table>
+<p>CC's main request path correctly translates its internal <code>&lt;model&gt;[1m]</code> label into <code>model</code> + header; the minimal quota-probe path skips that translation and ships the raw label. A classic two-code-paths-one-got-fixed inconsistency — on CC's side. In <code>proxy.log</code>, real messages (including 1,200+ POSTs over 1&nbsp;MB) go out as bare <code>claude-opus-4-8</code> and are <b>never</b> preceded by a <code>🔧 rewrote</code> line; the rewrite fires only on the tiny probes (≈31 rewrite events over two weeks).</p>
+
+<h3>The "vestigial" finding <span class="vbadge v-corr">conclusion confirmed; mechanism corrected</span></h3>
+<p>The investigation tested whether the rewrite is <b>load-bearing</b>:</p>
+<div class="ba">
+  <div class="half bad">
+    <h4>Hypothesis A — load-bearing</h4>
+    <pre>CC misreads the [1m] 404 as
+"Context limit reached / /clear"
+→ session breaks on first prompt
+→ the rewrite is essential</pre>
+  </div>
+  <div class="half ok">
+    <h4>Hypothesis B — vestigial ✓</h4>
+    <pre>CC shrugs off the failure
+→ boots and replies normally
+→ the rewrite isn't doing
+  anything load-bearing</pre>
+  </div>
+</div>
+
+<p>On the <b>Windows</b> box the test was staged behind a flag-file toggle so the <code>[1m]</code> probe could pass through untouched:</p>
+<pre><span class="c"># Before:  always run the rewrite</span>
+<span class="k">if</span> body:
+
+<span class="c"># Experiment: skip it when the flag file exists</span>
+<span class="k">if</span> body <span class="k">and not</span> _skip_1m_rewrite:     <span class="c"># _EXPERIMENT_skip_1m_rewrite.flag</span></pre>
+<p>Across <b>3 fresh sessions</b> the raw <code>claude-opus-4-8[1m]</code> went out, Anthropic returned <code>404 not_found_error</code>, and every session <b>booted and replied normally</b> — Hypothesis B. (Wire log: <code>15:52:05</code> [1m] out → <code>15:52:06</code> 404; <code>15:53:54</code> [1m] out → <code>15:53:58</code> 404.)</p>
+
+<div class="box warn">
+<h3 style="margin-top:0">⚠ What current local data shows instead (corrections)</h3>
+<ul style="margin-bottom:0">
+  <li>The flag experiment is <b>not in the current Mac repo</b> — there is no <code>_EXPERIMENT_skip_1m_rewrite.flag</code> and no <code>_skip_1m_rewrite</code> logic. The live guard is a plain <code>if body:</code> (L1018). The experiment was reverted; the snippet above is quoted as it ran on Windows, not as code that runs today.</li>
+  <li>The current failure mode is <b>not a model-not-found 404</b>. The probe is rewritten to a valid bare model first, so it returns <b>429 <code>rate_limit_error</code></b> (or 401 auth) — e.g. the captured dump shows <code>status 429</code>. The raw-<code>[1m]</code>→404 direct-replay result is from the Windows session and is <b>not reproducible</b> from this repo.</li>
+  <li>Every <code>404</code> in the local <code>proxy.log</code> is a response to CC's <code>HEAD /</code> health check (empty body, <code>ttfb=-1ms</code>), <b>not</b> a probe response.</li>
+</ul>
+</div>
+
+<div class="box good">
+<h3 style="margin-top:0">✓ The conclusion stands — and is supported more directly by local data</h3>
+<p style="margin-bottom:0">The <code>_normalize_cc_1m_suffix</code> rewrite is <b>not load-bearing on current Claude Code</b>: real messages already go out as bare <code>claude-opus-4-8</code> with the <code>context-1m</code> header and succeed at HTTP 200 (cache_read observed up to ~699k tokens), so <code>[1m]</code> only ever rides the throwaway probe — and a failing probe doesn't break the session. Only ~31 rewrite events exist against thousands of successful real requests. The dramatic "Context limit reached" severity in the docstring, if it was ever real, belongs to the older CC&nbsp;2.1.145 the shim was written for — it does <b>not</b> reproduce on 2.1.193+/2.1.195.</p>
+</div>
+
+<!-- ============================================================= -->
+<h2 id="s5">5 · The 1M-context mechanism <span class="vbadge v-conf">confirmed</span></h2>
+
+<p>The 1M context window is requested via the <code>anthropic-beta: context-1m-2025-08-07</code> <b>header</b> (or, for the newest models, natively) — <b>never</b> via a <code>[1m]</code> model-name suffix. <code>claude-opus-4-8[1m]</code> is a CC-internal label; the API has no such model id (which is why the raw suffix 404s).</p>
+
+<table>
+  <tr><th>Knob</th><th>Where</th><th>Effect</th></tr>
+  <tr><td><span class="pill">model</span></td><td>body</td><td>Picks the brain (<code>claude-opus-4-8</code>). <b>Not</b> the window size.</td></tr>
+  <tr><td><span class="pill">anthropic-beta</span></td><td>header</td><td><code>context-1m-2025-08-07</code> is what flips 200k → 1M for models that need it.</td></tr>
+</table>
+
+<p class="small">The <code>2025-08-07</code> is the <b>version date</b> of the context-1m beta. Anthropic dates beta flags so clients lock onto a stable feature version; a later iteration ships a new date and the old one keeps old behavior until retired. <span class="vbadge v-conf">externally confirmed</span> (the public "1M tokens" announcement followed ~Aug 12, 2025; this dated flag was later retired ~2026-04-30 for Sonnet 4/4.5 as 1M went GA on the newer generation).</p>
+
+<div class="box blue">
+<h3 style="margin-top:0">Opus 4.8 carries 1M natively — so the suffix and header are both redundant for it</h3>
+<p>Ground-truth on the wire: bare <code>claude-opus-4-8</code> requests succeeded at HTTP 200 with <code>cache_read</code> up to <b>~699k tokens</b> — far above any 200k ceiling. So the "1M reverting to 200k" the user feared was <b>never real for Opus 4.8</b>; only a cosmetic label flickered ("Opus 4.8" vs "Opus 4.8 (1M context)"). The 200k figure was just Claude Code's local <code>/context</code> meter mis-believing the bare id is a 200k model — CC's client accounting hadn't caught up to Opus 4.8 being natively 1M.</p>
+<p style="margin-bottom:0"><b>But for a model that genuinely needs the header for 1M</b> (older Opus, Sonnet 4), this same <code>-c</code> behavior — restoring the bare model and not always re-appending the 1M tag/beta — <i>would</i> silently cut a resumed session back to 200k. That would be a real bug in those cases; it just isn't one for Opus 4.8.</p>
+</div>
+
+<p class="small">Caveats from verification: the specific claim that a 418k-token request carried <b>no</b> <code>context-1m</code> header isn't strictly isolable from the local log (the proxy doesn't log full headers on successful requests, and CC includes <code>context-1m</code> in its own beta list for real messages). What's proven is that the real window is <b>far above 200k</b> for bare <code>claude-opus-4-8</code> — not strictly "native, zero header." The "<code>/context</code> shows 200k" half is CC client accounting, outside the proxy.</p>
+
+<!-- ============================================================= -->
+<h2 id="s6">6 · Implications &amp; takeaways</h2>
+
+<div class="box amber">
+<ol style="margin:0;padding-left:20px">
+  <li><b>A resume restores the model that last <i>answered</i>.</b> <code>-c</code> reads <code>message.model</code> from the last real assistant line. To change what a resume restores, you must <i>send</i> a message on the desired model in that session — picking it in <code>/model</code> without sending does nothing for <code>-c</code>.</li>
+  <li><b><code>settings.json .model</code> is only the baseline.</b> It seeds a fresh launch; the resume override beats it. That's why settings saying <code>sonnet</code> didn't stop <code>-c</code> from returning Haiku.</li>
+  <li><b>The only lever that forces a model on a resume is a per-launch override.</b> <code>--model claude-opus-4-8[1m]</code> (or <code>ANTHROPIC_MODEL</code>) trips the gate and skips the transcript restore. <span class="vbadge v-corr">unverified</span> — see open questions: this was teed up but not confirmed in-window.</li>
+  <li><b>This is stock Claude Code, not your toolkit.</b> Reproduced on a no-proxy, different-version, different-OS Ubuntu box. The proxy plays no part in model resolution.</li>
+  <li><b>The proxy's <code>[1m]</code> rewrite is vestigial on current CC.</b> Real messages never use it; the throwaway probe fails harmlessly. Worth keeping for older-client safety, but it is not what makes 1M work today.</li>
+  <li><b>1M lives in the header, and Opus 4.8 has it natively.</b> The window never actually dropped to 200k for Opus 4.8 — only the label and CC's local meter did.</li>
+</ol>
+</div>
+
+<!-- ============================================================= -->
+<h2 id="s7">7 · Open questions</h2>
+<p class="lead">Carried forward from the investigation's own gap list — stated plainly so this doc doesn't overclaim.</p>
+
+<div class="box">
+<ul style="margin:0">
+  <li><b>Does a per-launch <code>--model claude-opus-4-8[1m]</code> actually beat <code>-c</code> and survive a resume?</b> Not confirmed in-window — the automated <code>claude -c -p</code> print-mode test hung (as did setting <code>model</code> in <code>settings.local.json</code>). Interactive verification was left to run by hand. The binary's gate logic predicts it should work, but it wasn't observed end to end.</li>
+  <li><b>The 404 severity in the docstring is unverified and likely overstated.</b> "CC misinterprets the 404 as Context limit reached / /clear on the FIRST prompt" was never directly observed and the experiment contradicted it on current CC. It may have been true only on the CC&nbsp;2.1.145 the shim was written for.</li>
+  <li><b>Who runs <code>claude -c</code> on restart is inferred, not measured.</b> The "computer restart → sessions auto-relaunched with <code>claude -c</code>" chain rests on seeing <code>claude.exe -c</code> in the process tree; the exact restore-orchestrator (assumed window/IDE restore) is a well-supported guess.</li>
+  <li><b>The exact seed test artifact is not in the data.</b> "settings said <code>sonnet</code> yet <code>-c</code> resumed as Haiku" is consistent with the confirmed mechanism (transcripts on disk do contain <code>claude-haiku-4-5</code> lines) but the specific session id / screenshot of that run isn't captured here.</li>
+  <li><b>Header-level proxy logging was never permanently added.</b> Early claims that big bare-4.8 sessions send the <code>context-1m</code> header themselves were inferences, later turned into ground truth by a pcap A/B; the proxy log still records model strings, not full headers, on successful requests.</li>
+</ul>
+</div>
+
+<div class="footer">
+Reference doc · claude-toolkit · model resolution on <code>claude -c</code> · binary RE of Claude Code 2.1.193 (repro on local 2.1.195) · proxy = <code>claude_proxy.py</code> on :9999 · sources: <code>claude_proxy.py</code> L297–325 / L1017–1030, <code>proxy.log</code>, <code>proxy_1m_dump.json</code>, local build <code>~/.local/share/claude/versions/2.1.195</code>
+</div>
+
+</div>
+</body>
+</html>

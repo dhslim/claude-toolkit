@@ -12,12 +12,13 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 LOG_FILE = SCRIPT_DIR / 'sync.log'
 RUNNER_SCRIPT = SCRIPT_DIR / '_sync_runner.py'
+KST = timezone(timedelta(hours=9))
 
 # Determine venv python path
 if sys.platform == 'win32':
@@ -26,10 +27,16 @@ else:
     PYTHON = str(SCRIPT_DIR / '.venv' / 'bin' / 'python')
 
 
+def _log_ts():
+    """Dual KST | UTC timestamp prefix to avoid timezone confusion when reading sync.log."""
+    now_utc = datetime.now(timezone.utc)
+    now_kst = now_utc.astimezone(KST)
+    return f"{now_kst.strftime('%Y-%m-%d %H:%M:%S')} KST | {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
+
+
 def log(msg):
-    ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
     with open(LOG_FILE, 'a', encoding='utf-8') as f:
-        f.write(f'[{ts}] {msg}\n')
+        f.write(f'[{_log_ts()}] {msg}\n')
 
 
 def main():

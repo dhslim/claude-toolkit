@@ -20,4 +20,47 @@ quiz-instructions-active.txt
 probe-dump-*.json
 probe-dump-*.summary.txt
 proxy.log
+proxy.log.old.*
 proxy.err.log
+proxy_1m_dump.json
+proxy_over_cap_dump.json
+
+# Hook runtime logs
+hook_turn_timestamp.log
+
+# Quiz runtime payloads
+quiz_payload*.json
+
+# Context-viewer dump — may contain full conversation bodies; never commit.
+current_context.html
+
+# /digest test artifacts
+digest_test_image.jpg
+
+# investigation scratch (do not commit)
+_clawd_asar_dump/
+_win_inventory.csv
+_win_inventory_raw.txt
+quiz_tmp.json
+conversations.json
+users.json
+projects.json
+*-export*.json
+.embed_cache.npz
+sniff-dump.json
+sniff-dumps/
+
+# Editor-local settings. Deliberately NOT tracked: .vscode/settings.json here
+# carries a Windows-specific venv-activation opt-out that must not propagate to
+# the macOS/Linux boxes.
+.vscode/
+
+# Backups and ad-hoc test logs
+*.bak
+proxy_test*.log
+
+# macOS finder metadata
+.DS_Store
+
+# local rollback net from the 2026-08-25 duplicate-quiz cleanup (80 ungraded docs)
+_deleted_quiz_backup.json

@@ -265,7 +265,7 @@ Seven lines of new code. No new functions, no state, no new failure modes. The u
 
 ## Verification
 
-Restart the proxy (`taskkill /F /PID ...` both instances, then `python claude_proxy.py`) and observe:
+Restart the proxy (`taskkill /F /PID ...` both instances, then `.venv/Scripts/python.exe claude_proxy.py`) and observe:
 
 ### Before the fix
 

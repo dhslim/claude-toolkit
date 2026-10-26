@@ -46,6 +46,7 @@ import subprocess
 import sys
 import uuid
 from pathlib import Path
+from typing import Optional, Union
 
 
 def encode_cwd(cwd: str) -> str:
@@ -62,7 +63,7 @@ def encode_cwd(cwd: str) -> str:
     return encoded
 
 
-def current_git_branch(target_dir: Path) -> str | None:
+def current_git_branch(target_dir: Path) -> Optional[str]:
     """Return the target dir's current git branch, or None if not a repo."""
     try:
         result = subprocess.run(
@@ -77,7 +78,7 @@ def current_git_branch(target_dir: Path) -> str | None:
         return None
 
 
-def sibling_git_branch(target_project_dir: Path) -> str | None:
+def sibling_git_branch(target_project_dir: Path) -> Optional[str]:
     """Look at existing JSONL files in the target encoded project dir and
     return the most common `gitBranch` value they use. This handles cases
     where Claude Code writes `"HEAD"` literally (e.g. when the branch name
@@ -162,7 +163,7 @@ def transplant(source_file: Path, target_cwd: str) -> Path:
     dest_file = target_project_dir / f"{new_session_id}.jsonl"
 
     # --- Phase 1: Read and rewrite all lines ---
-    all_objects: list[dict | str] = []
+    all_objects: list[Union[dict, str]] = []
     cwd_rewrites = 0
     branch_rewrites = 0
     session_id_rewrites = 0
@@ -201,9 +202,9 @@ def transplant(source_file: Path, target_cwd: str) -> Path:
     # the picker gives up and hides the session from the default view.
     # Fix: keep only 1 permission-mode + 1 snapshot before the first
     # user message; move excess snapshots after it.
-    header: list[dict | str] = []
-    deferred_snapshots: list[dict | str] = []
-    conversation: list[dict | str] = []
+    header: list[Union[dict, str]] = []
+    deferred_snapshots: list[Union[dict, str]] = []
+    conversation: list[Union[dict, str]] = []
     found_user = False
     kept_one_perm = False
     kept_one_snapshot = False
