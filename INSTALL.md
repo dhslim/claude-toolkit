@@ -111,16 +111,21 @@ This third block is a standalone preference (no hook dependency).
 
 Add the following aliases if not already present.
 
-macOS/Linux — append to ~/.zshrc or ~/.bashrc:
+Ultracode (dynamic workflow orchestration) comes from `"ultracode": true` in the
+step 5 settings template, at **medium** effort. No `claude` alias is needed for it.
+Don't add `--effort ultracode` to a launcher: that flag also forces xhigh effort.
+The template also sets no `CLAUDE_CODE_EFFORT_LEVEL`, on purpose: that variable
+outranks every other effort setting, including `/effort`, so with it set you can't
+raise effort for a single hard task. (It is still the only persistent way to get
+`max` by default, if you ever want that back.) Requires Claude Code ≥ 2.1.284
+(ultracode below xhigh).
 
-The `claude` alias forces every launch into **ultracode** (xhigh effort + dynamic workflow orchestration), which is otherwise session-only and resets on each `claude -c`. `ultracode` is a valid (undocumented) `--effort` launch level; `claude -c`, `cfork`, and `cread` all inherit it. Requires Claude Code ≥ 2.1.203.
+macOS/Linux — append to ~/.zshrc or ~/.bashrc:
 
 ```bash
 # Claude Code fork shortcuts
 alias cfork='claude -r --fork-session'   # pick a session to fork-resume
 alias cread='claude -c --fork-session'   # fork-continue latest session (for reading)
-# Always launch in ultracode (xhigh + dynamic workflow orchestration)
-alias claude='claude --effort ultracode'
 ```
 
 Windows (Git Bash) — append to ~/.bashrc:
@@ -129,7 +134,6 @@ Windows (Git Bash) — append to ~/.bashrc:
 # Claude Code fork shortcuts
 alias cfork='claude -r --fork-session'
 alias cread='claude -c --fork-session'
-alias claude='claude --effort ultracode'
 ```
 
 Windows (PowerShell) — append to $PROFILE:
@@ -138,7 +142,6 @@ Windows (PowerShell) — append to $PROFILE:
 # Claude Code fork shortcuts
 function cfork { claude -r --fork-session }
 function cread { claude -c --fork-session }
-function claude { claude.exe --effort ultracode @args }
 ```
 
 ### 9. Install the claude_proxy wrapper (optional)
@@ -165,18 +168,13 @@ The installer refuses to proceed if the venv from step 2 is missing, or if that
 venv cannot import `httpx`, `fastapi` and `uvicorn`. Both refusals name the cause
 and exit 1 rather than writing a wrapper that would fail silently at launch.
 
-**This step rewrites the `claude` definition from step 8.** The installer writes
-its own `claude` shell function — one that starts the proxy on port 9999 if it is
-not already listening, then calls the real binary. Being defined later in the
-file, it shadows step 8's alias. Merge the ultracode flag into the wrapper's call
-to the real binary so it is not lost:
-
-```powershell
-& $real.Source --effort ultracode @args   # ultracode merged into the proxy call
-```
+The installer writes its own `claude` shell function — one that starts the proxy on
+port 9999 if it is not already listening, then calls the real binary. If an older
+setup left an `alias claude='claude --effort ultracode'` behind, delete it: the
+alias forces xhigh effort, and ultracode now comes from settings.
 
 Verify with `(Get-Command claude).Definition` (PowerShell) or `type claude`
-(bash/zsh): you should see the proxy wrapper, and `--effort ultracode` inside it.
+(bash/zsh): you should see the proxy wrapper, with no `--effort` flag inside it.
 
 To remove it later: `.venv/Scripts/python.exe install_claude_proxy.py --uninstall`
 

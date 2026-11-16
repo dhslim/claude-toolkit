@@ -101,7 +101,7 @@ function claude {{
     fi
     ANTHROPIC_BASE_URL="http://localhost:9999" \\
     CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE="9000000" \\
-        command claude --effort ultracode --allow-dangerously-skip-permissions "$@"
+        command claude --allow-dangerously-skip-permissions "$@"
 }}
 {WRAPPER_END}
 """
@@ -141,12 +141,11 @@ function claude {{
     $real = Get-Command claude -CommandType Application -ErrorAction SilentlyContinue |
             Select-Object -First 1
     if ($real) {{
-        # --effort ultracode : this box's default reasoning level.
         # --allow-dangerously-skip-permissions : puts bypassPermissions back in
         #   the shift+tab roster WITHOUT making it the default. Two different
         #   flags -- --dangerously-skip-permissions ENABLES it now, this one
         #   merely OFFERS it. defaultMode in settings.json stays 'auto'.
-        & $real.Source --effort ultracode --allow-dangerously-skip-permissions @args
+        & $real.Source --allow-dangerously-skip-permissions @args
     }} else {{
         Write-Error "claude binary not found in PATH. Install Claude Code first."
     }}

@@ -4,8 +4,7 @@
   },
   "skipDangerousModePermissionPrompt": true,
   "env": {
-    "CLAUDE_CODE_NO_FLICKER": "1",
-    "CLAUDE_CODE_EFFORT_LEVEL": "max"
+    "CLAUDE_CODE_NO_FLICKER": "1"
   },
   "hooks": {
     "Stop": [
@@ -106,7 +105,8 @@
     "command": "~/.claude/statusline.sh",
     "padding": 1
   },
-  "effortLevel": "xhigh",
+  "effortLevel": "medium",
+  "ultracode": true,
   "outputStyle": "Concise",
   "model": "opus[1m]",
   "autoUpdatesChannel": "latest",
