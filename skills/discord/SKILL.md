@@ -1,7 +1,6 @@
 ---
 name: discord
 description: Read and send Discord messages via the discord-cli wrapper around the Discord REST API
-disable-model-invocation: true
 argument-hint: <command> [args] (e.g. whoami, guilds, channels <guild_id>, history <channel_id>, send <channel_id> "hi")
 ---
 

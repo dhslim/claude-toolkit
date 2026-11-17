@@ -1,7 +1,6 @@
 ---
 name: unbadge
 description: Guided workflow to remove Claude Code session names and clear the cyan session-name badge — reports what is named, which live processes hold them, gates on verified shutdown, clears, then hands back resume commands
-disable-model-invocation: true
 argument-hint: "[session-id(s) | blank for the full report]"
 ---
 

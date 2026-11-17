@@ -1,7 +1,6 @@
 ---
 name: pushback
 description: "Treat this turn as adversarial review, not assistance. Push back hard on weak reasoning, unjustified claims, and questionable direction-setting. Critical but honest — no manufactured disagreement. With args: push back on the argument. Without args: push back on your own previous response."
-disable-model-invocation: true
 argument-hint: <optional — message/claim/proposal to push back on; omit to push back on your previous response>
 ---
 

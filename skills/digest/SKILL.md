@@ -1,7 +1,6 @@
 ---
 name: digest
 description: "Fetch and summarize any social media or web post — YouTube, Instagram, Reddit, blogs, Substack, news. Auto-detects platform from URL."
-disable-model-invocation: true
 argument-hint: <url> [--lang en,ko]
 ---
 

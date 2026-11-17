@@ -1,7 +1,6 @@
 ---
 name: grill-me
 description: Interactively quiz the user to test and deepen their understanding of a topic, a file/module, a PR or diff, a commit, or a concept — with an optional difficulty/mode hint
-disable-model-invocation: true
 argument-hint: <what to grill on> [+ difficulty/mode] (e.g. "this PR", "this diff hard", path/to/file.py, a commit SHA, "TCP congestion control interview", "rapid fire", or empty to grill on the current branch)
 ---
 
