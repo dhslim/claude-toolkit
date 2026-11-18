@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clawd "Jump to Terminal" Window-Shrink — Root Cause &amp; Fix</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --panel2:#1c2230; --ink:#d7dde5; --mut:#8b97a7;
+    --line:#2a3240; --acc:#5ab0ff; --good:#3fb950; --bad:#f85149; --warn:#d29922; --code:#0b0e13;
+    --pink:#ff7b9c;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.65 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:960px;margin:0 auto;padding:40px 22px 90px;}
+  h1{font-size:27px;line-height:1.25;margin:0 0 6px;letter-spacing:-.3px}
+  h2{font-size:20px;margin:42px 0 12px;padding-bottom:7px;border-bottom:1px solid var(--line);}
+  h3{font-size:16px;margin:26px 0 8px;color:#eaf0f7}
+  p{margin:10px 0}
+  code,kbd{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace}
+  code{background:#222a36;color:#e6edf5;padding:1px 6px;border-radius:5px;font-size:13px}
+  kbd{background:#222a36;border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px;font-size:12px}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:9px;padding:14px 16px;overflow:auto;font-size:12.5px;line-height:1.55;margin:12px 0}
+  pre .del{color:#ff9a9a}.pre .add{color:#9ff0a8}
+  .add{color:#7ee787}.del{color:#ffa198}.cmt{color:#6b7787}.kw{color:#ff7b9c}.fn{color:#d2a8ff}.str{color:#a5d6ff}
+  .lead{color:var(--mut);font-size:16px;margin-top:2px}
+  .badges{margin:16px 0 4px}
+  .badge{display:inline-block;font-size:12px;font-weight:600;padding:3px 10px;border-radius:20px;margin:0 6px 6px 0;border:1px solid}
+  .b-good{color:#7ee787;border-color:#2ea043;background:#0f2417}
+  .b-acc{color:#9cd2ff;border-color:#1f6feb;background:#0d1f33}
+  .b-mut{color:#aab3c0;border-color:#30363d;background:#171c24}
+  .tldr{background:linear-gradient(180deg,#15212f,#131a24);border:1px solid #25405c;border-radius:12px;padding:16px 18px;margin:20px 0}
+  .tldr b{color:#cfe6ff}
+  .call{border-left:3px solid var(--acc);background:var(--panel);padding:11px 15px;border-radius:0 8px 8px 0;margin:14px 0}
+  .call.warn{border-color:var(--warn);background:#211c10}
+  .call.bad{border-color:var(--bad);background:#241314}
+  .call.good{border-color:var(--good);background:#0f2417}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:#cdd7e3;font-weight:600}
+  td.c,th.c{text-align:center;white-space:nowrap}
+  .ok{color:var(--good);font-weight:700}.no{color:var(--bad);font-weight:700}
+  .flow{background:var(--code);border:1px solid var(--line);border-radius:9px;padding:16px;margin:14px 0;font-family:monospace;font-size:12.5px;color:#c9d4e2;white-space:pre;overflow:auto;line-height:1.5}
+  .sev{font-size:11px;font-weight:700;padding:1px 8px;border-radius:20px}
+  .sev-med{color:#f0c674;background:#2a2310;border:1px solid #6b5418}
+  .sev-low{color:#9bdca6;background:#11241a;border:1px solid #2a5d3a}
+  .muted{color:var(--mut)}
+  .tag{font-size:11px;color:var(--mut)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}
+  @media(max-width:680px){.grid2{grid-template-columns:1fr}}
+  .mini{font-size:13px;color:var(--mut);margin-top:6px}
+  footer{margin-top:50px;padding-top:16px;border-top:1px solid var(--line);color:var(--mut);font-size:12.5px}
+  a{color:var(--acc)}
+  .hl{background:#3a2a00;color:#ffd479;padding:0 3px;border-radius:3px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Clawd “Jump to Terminal” shrinks the window</h1>
+  <div class="lead">Root-cause analysis, fix, and independent verification — clawd-focus patch</div>
+  <div class="badges">
+    <span class="badge b-good">● RESOLVED</span>
+    <span class="badge b-good">✓ INDEPENDENTLY VALIDATED</span>
+    <span class="badge b-acc">commit 4bdcf00 · pushed</span>
+    <span class="badge b-mut">2026-06-24 · KST</span>
+  </div>
+
+  <div class="tldr">
+    <b>TL;DR.</b> Clicking <b>Jump&nbsp;to&nbsp;Terminal</b> on a <b>maximized</b> VS&nbsp;Code window (e.g. <code>youmap</code>) made it
+    shrink. Cause was <b>our own</b> clawd-focus patch: its window-raise helper called
+    <code>ShowWindow(h,&nbsp;9)</code> — Win32 <code>SW_RESTORE</code> — <b>unconditionally</b>, and on a maximized window
+    <code>SW_RESTORE</code> un-maximizes it. The fix is one guard: only restore when the window is <i>minimized</i>
+    (<code>if(IsIconic(h)) ShowWindow(h,9)</code>). It was <b>not</b> caused by the Clawd-on-Desk update. Verified across all
+    3 extension copies, Clawd’s own native focus code, the live debug log, and git — by 5 independent checks.
+  </div>
+
+  <h2>1 · Symptom</h2>
+  <p>From the Clawd&nbsp;on&nbsp;Desk <b>Sessions</b> window, pressing <b>Jump to Terminal</b> on the <code>youmap</code>
+  session reliably took its VS&nbsp;Code window from <b>maximized</b> to a smaller, floating (“restored”) size.
+  The terminal <i>did</i> get focused — but the window was resized as a side effect, every time.</p>
+
+  <h2>2 · Background: two different “Clawd”s</h2>
+  <p>The confusing part of this incident is that “Clawd” names <b>two separate components</b>, and the bug lived in
+  one while an unrelated update touched the other:</p>
+  <table>
+    <tr><th style="width:30%">Component</th><th>What it is</th><th>Role here</th></tr>
+    <tr>
+      <td><b>Clawd on Desk</b><div class="tag">Electron desktop app</div></td>
+      <td>The app with the <b>Sessions</b> window &amp; the <i>Jump to Terminal</i> buttons.<br><code>…\Programs\Clawd on Desk\…\app.asar</code></td>
+      <td>Its <b>update</b> reverted the <code>app.asar</code> byte-edits and the extension copy <i>bundled inside the app</i> back to stock. <span class="muted">(Red herring — see §4.)</span></td>
+    </tr>
+    <tr>
+      <td><b>Clawd Terminal Focus</b><div class="tag">VS Code extension</div></td>
+      <td>Runs <i>inside</i> VS&nbsp;Code; receives the focus request and raises the right window.<br><code>…\.vscode\extensions\clawd.clawd-terminal-focus-0.1.1\extension.js</code></td>
+      <td><b>Where the bug lived.</b> This copy is what VS&nbsp;Code actually loads, and it carried our patch.</td>
+    </tr>
+  </table>
+
+  <h3>Why the patch exists at all</h3>
+  <p>VS&nbsp;Code multiplexes many project windows under <b>one</b> <code>Code.exe</code> PID, so Clawd’s native focus
+  often lands on the <i>wrong</i> window. The <code>clawd-focus</code> patch makes the extension instance that owns the
+  matching terminal raise <b>its own</b> window — matched by workspace-folder name against the window titles — via a
+  warm, persistent PowerShell helper that compiles a tiny Win32 class once and stays resident for instant raises.</p>
+
+  <h3>The focus flow (what happens on a click)</h3>
+  <div class="flow">Sessions ▸ "Jump to Terminal"
+   │
+   ▼  (Clawd on Desk main process)
+  HTTP POST /focus-tab  →  broadcast to 127.0.0.1 : 23456 … 23499
+   │                       (only the extension whose terminal PID matches answers 200)
+   ▼  (Clawd Terminal Focus extension, in VS Code)
+  focusTerminalByPids(pids):
+       terminal.show(false)            ← shows the terminal panel
+       raiseOwnWindow()                ← writes "youmap" to the warm PS helper's stdin
+   │
+   ▼  (persistent PowerShell helper — compiled Win32 "ClawdRaise")
+  Raise("youmap"):
+       h = Find("youmap")              ← window by title substring
+       ShowWindow(h, 9)   ◀──── BUG: unconditional SW_RESTORE  ✗
+       BringWindowToTop(h); SetForegroundWindow(h)</div>
+
+  <h2>3 · Root cause</h2>
+  <p>The helper’s <code>Raise()</code> called <code>ShowWindow(h,&nbsp;9)</code> on every raise. <code>9</code> is the Win32
+  constant <code>SW_RESTORE</code>, whose documented behaviour is the trap:</p>
+  <table>
+    <tr><th class="c" style="width:14%">nCmdShow</th><th style="width:22%">Constant</th><th>Effect</th></tr>
+    <tr><td class="c">9</td><td><code>SW_RESTORE</code></td><td>“Activates and displays the window. If the window is <b>minimized <span class="hl">or maximized</span></b>, the system restores it to its original size and position.”</td></tr>
+  </table>
+  <p>So calling <code>SW_RESTORE</code> unconditionally is fine for a minimized window (un-minimizes it — desirable) but
+  <b>wrong for a maximized window</b>: it “restores” it down to its previous floating size. That is precisely the shrink.
+  It’s a classic Win32 pitfall — the correct pattern is to gate <code>SW_RESTORE</code> behind a minimized check.</p>
+  <div class="call bad"><b>The defect, in one line:</b> <code>… AttachThreadInput(cur,ft,true); <span class="del">ShowWindow(h,9);</span> BringWindowToTop(h); …</code> — no “is it minimized?” guard.</div>
+  <p class="mini">The bug had been latent in the patch since the v4 (“persistent warm helper”) rewrite. It only manifests
+  when the raised window happens to be <i>maximized</i>, which is why it surfaced once windows were routinely kept maximized.</p>
+
+  <h2>4 · It was <span style="color:var(--bad)">not</span> the Clawd update</h2>
+  <p>An early hypothesis (mine) blamed a Clawd-on-Desk update. The evidence disproves it:</p>
+  <ul>
+    <li>The update reverted the things <b>bundled in the app</b> — the <code>app.asar</code> byte-edits and the
+      app-bundled extension copy — back to stock.</li>
+    <li>It did <b>not</b> touch <code>…\.vscode\extensions\…\extension.js</code>, the copy VS&nbsp;Code actually loads.
+      That copy still carried our <b>old, buggy</b> patch (apply.ps1 later reported it “already patched, skipped”).</li>
+    <li>Clawd’s <b>own</b> native focus is already correctly guarded (see §6 validation) and never resizes a VS&nbsp;Code window.</li>
+  </ul>
+  <p>So the shrink came entirely from <b>our patch’s</b> unconditional <code>SW_RESTORE</code> — present and firing
+  regardless of the update. A secondary factor made it sticky: <b>VS&nbsp;Code extension hosts don’t hot-reload on a disk
+  change</b>, so already-open windows kept running the old in-memory code (and an already-compiled PowerShell helper)
+  until reloaded.</p>
+
+  <h2>5 · The fix</h2>
+  <p>Add the <code>IsIconic</code> import and guard the restore so it fires <b>only when the window is minimized</b>:</p>
+  <pre><span class="cmt">// buildHelperScript() — added DllImport</span>
+<span class="add">+ [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);</span>
+
+<span class="cmt">// Raise() — the one-line guard</span>
+<span class="del">- … AttachThreadInput(cur,ft,true); ShowWindow(h,9); BringWindowToTop(h); SetForegroundWindow(h); …</span>
+<span class="add">+ … AttachThreadInput(cur,ft,true); if(IsIconic(h)) ShowWindow(h,9); BringWindowToTop(h); SetForegroundWindow(h); …</span></pre>
+  <div class="grid2">
+    <div class="call good"><b>Maximized window</b> → <code>IsIconic</code> is <code>false</code> → <code>ShowWindow</code> skipped → stays maximized. <code>BringWindowToTop</code>&nbsp;+&nbsp;<code>SetForegroundWindow</code> still raise it. <b>No shrink.</b></div>
+    <div class="call good"><b>Minimized window</b> → <code>IsIconic</code> is <code>true</code> → <code>ShowWindow(h,9)</code> runs → un-minimizes. <b>Restore still works.</b></div>
+  </div>
+  <p class="mini">Commit <code>4bdcf00</code> — <i>“fix(clawd-focus): only SW_RESTORE when minimized (IsIconic guard) so Jump-to-Terminal stops un-maximizing windows.”</i> On <code>origin/main</code> (pushed).</p>
+
+  <h3>Deployment (and a gotcha)</h3>
+  <ol>
+    <li><b>Re-applied</b> via <code>apply.ps1</code> — restored everything the Clawd update wiped (asar broadcast 23460→23499, focus delay, no-flicker, Sessions width) and wrote the fixed extension to the app-bundled copy.</li>
+    <li><span class="hl">apply.ps1 <b>skipped</b> the <code>.vscode</code> copy</span> (“already patched”) — i.e. it refused to clobber the copy VS&nbsp;Code loads, which still held the <b>old</b> patch. We <b>force-copied</b> the fixed template over it.</li>
+    <li><b>Reloaded</b> the VS&nbsp;Code windows (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> → “Developer: Reload Window”) so the host drops the stale code and a fresh PowerShell helper (with the guarded C#) spawns.</li>
+  </ol>
+
+  <h2>6 · Verification &amp; validation</h2>
+  <p>Five independent checks were run against the live system. <b>All passed.</b></p>
+
+  <h3>6.1 — All extension copies carry the guard, none carry an unguarded restore</h3>
+  <table>
+    <tr><th>extension.js copy</th><th class="c">guarded<br><code>if(IsIconic(h))…</code></th><th class="c">unguarded<br><code>true); ShowWindow(h,9)</code></th><th class="c">IsIconic<br>import</th></tr>
+    <tr><td><code>.vscode\…\clawd-terminal-focus-0.1.1</code> <span class="tag">(VS Code loads this)</span></td><td class="c ok">1 ✓</td><td class="c ok">0 ✓</td><td class="c ok">yes</td></tr>
+    <tr><td><code>app.asar.unpacked\…\vscode</code> <span class="tag">(app-bundled)</span></td><td class="c ok">1 ✓</td><td class="c ok">0 ✓</td><td class="c ok">yes</td></tr>
+    <tr><td><code>patches\clawd-focus\extension.patched.js</code> <span class="tag">(repo template)</span></td><td class="c ok">1 ✓</td><td class="c ok">0 ✓</td><td class="c ok">yes</td></tr>
+  </table>
+  <p>The <code>Raise()</code> body is <b>byte-identical across all three</b> (line 51), and the only <code>ShowWindow(h,9)</code>
+  in each file is the guarded one:</p>
+  <pre>public static void Raise(string sub){ IntPtr h=Find(sub); if(h==IntPtr.Zero) return;
+  IntPtr fg=GetForegroundWindow(); uint p; uint ft=GetWindowThreadProcessId(fg,out p);
+  uint cur=GetCurrentThreadId(); AttachThreadInput(cur,ft,true);
+  <span class="add">if(IsIconic(h)) ShowWindow(h,9);</span> BringWindowToTop(h); SetForegroundWindow(h);
+  AttachThreadInput(cur,ft,false); }</pre>
+
+  <h3>6.2 — Clawd’s own native focus could not have caused it</h3>
+  <p>Reading the <code>app.asar</code> binary confirmed stock Clawd never resizes a VS&nbsp;Code window:</p>
+  <ul>
+    <li><b>Native focus is already guarded.</b> The only <code>ShowWindow</code> in <code>WinFocus.Focus()</code> is
+      <code>if (IsIconic(hWnd)) ShowWindow(hWnd, 9)</code> — restores only minimized windows.</li>
+    <li><b>Broadcast range = 23499</b> (the re-applied/widened range), not stock 23460 — confirming <code>apply.ps1</code> took.</li>
+    <li><b>Every</b> <code>setBounds()</code>/<code>restore()</code> in the asar targets Clawd’s <b>own</b> Electron windows
+      (dashboard / settings / permission bubble), never a VS&nbsp;Code HWND.</li>
+    <li><b>Zero</b> external-window resize primitives anywhere in the asar:
+      <code>MoveWindow=0</code>, <code>SetWindowPos=0</code>, <code>SW_MAXIMIZE=0</code>, <code>.maximize=0</code>, <code>.unmaximize=0</code>.</li>
+  </ul>
+  <div class="call">Conclusion: the shrink could <b>only</b> have come from the extension’s <code>Raise()</code> — which is exactly what we fixed.</div>
+
+  <h3>6.3 — The live debug log: bug fired, then a fresh guarded helper spawned</h3>
+  <table>
+    <tr><th>Metric (from <code>%TEMP%\clawd-focus-debug.log</code>)</th><th>Value</th></tr>
+    <tr><td>Total <code>raise -&gt;</code> focus events</td><td><b>516</b></td></tr>
+    <tr><td><code>raise -&gt; [youmap]</code> events (the shrinking ones)</td><td><b>18</b>, from <code>01:56:26Z</code> → <code>04:58:07Z</code></td></tr>
+    <tr><td>Newest PowerShell helper spawned <span class="tag">(carries the guarded C#)</span></td><td><code>pid=32516</code> @ <code>2026-06-24T04:52:53Z</code></td></tr>
+    <tr><td>FAIL / exception lines</td><td class="ok">0</td></tr>
+  </table>
+  <p class="mini">A <b>new</b> helper pid dated after the fix is the key signal: the resident PowerShell helper recompiles the
+  Win32 class on (re)spawn, so the live, in-process helper is now running the <code>IsIconic</code>-guarded code — not just the disk file.</p>
+
+  <h3>6.4 — Committed &amp; pushed</h3>
+  <pre>commit <span class="str">4bdcf00c51cc7889f604ca2c653c14021a6382b9</span>  (on origin/main)
+fix(clawd-focus): only SW_RESTORE when minimized (IsIconic guard) …
+
+<span class="add">+ [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);</span>
+<span class="del">- … AttachThreadInput(cur,ft,true); ShowWindow(h,9); BringWindowToTop(h); …</span>
+<span class="add">+ … AttachThreadInput(cur,ft,true); if(IsIconic(h)) ShowWindow(h,9); BringWindowToTop(h); …</span></pre>
+
+  <h3>6.5 — Adversarial pass (did the fix miss anything?)</h3>
+  <table>
+    <tr><th>Probe</th><th class="c">Verdict</th></tr>
+    <tr><td>Does a <b>minimized</b> window still restore?</td><td class="c ok">Yes — IsIconic true → ShowWindow runs</td></tr>
+    <tr><td>Is a <b>maximized</b> window left alone?</td><td class="c ok">Yes — IsIconic false → skipped; still raised</td></tr>
+    <tr><td><b>Snapped</b> / Aero-snap &amp; <b>multi-monitor</b> windows</td><td class="c ok">Unaffected — no resize, no move</td></tr>
+    <tr><td><code>keybd_event</code> Alt nudge side effects</td><td class="c ok">Cosmetic at most; never resizes</td></tr>
+  </table>
+
+  <h2>7 · Residual risks &amp; future-proofing</h2>
+  <p>The shrink is fixed, but the sweep flagged maintenance hazards worth closing:</p>
+  <table>
+    <tr><th style="width:34%">Risk</th><th class="c">Sev</th><th>Detail &amp; mitigation</th></tr>
+    <tr>
+      <td>apply.ps1 “skip if already patched” can strand an <b>old</b> patch</td>
+      <td class="c"><span class="sev sev-med">MED</span></td>
+      <td>Exactly what bit us on the <code>.vscode</code> copy. Make <code>apply.ps1</code> re-write when the installed patched content differs from the current template (compare &amp; force-update), instead of skipping any already-patched file.</td>
+    </tr>
+    <tr>
+      <td>Extension version-bump fragility (<code>-0.1.1</code> hardcoded)</td>
+      <td class="c"><span class="sev sev-med">MED</span></td>
+      <td>If a future Clawd ships <code>clawd-terminal-focus-0.1.2</code>, apply.ps1 patches the wrong (old) folder and the stock new one loads → shrink returns. Fix: <b>glob</b> <code>clawd.clawd-terminal-focus-*</code>.</td>
+    </tr>
+    <tr>
+      <td>Clawd updates revert the <code>app.asar</code> edits</td>
+      <td class="c"><span class="sev sev-low">LOW</span></td>
+      <td>Broadcast range / no-flicker / delay / Sessions-width get wiped on each Clawd-on-Desk update (not the shrink). Routine: <b>re-run <code>apply.ps1</code></b> after updating Clawd.</td>
+    </tr>
+    <tr>
+      <td>Stale in-memory extension/helper until reload</td>
+      <td class="c"><span class="sev sev-low">LOW</span></td>
+      <td>Open windows keep running old code until reloaded. Transient; resolved here (fresh helper <code>pid=32516</code> confirmed). After any future patch change, <b>reload the window</b>.</td>
+    </tr>
+  </table>
+
+  <footer>
+    <b>Files of record.</b>
+    Fix template: <code>claude-toolkit\patches\clawd-focus\extension.patched.js</code> ·
+    Installer: <code>…\apply.ps1</code> ·
+    Live copies: <code>…\.vscode\extensions\clawd.clawd-terminal-focus-0.1.1\extension.js</code>,
+    <code>…\Clawd on Desk\…\app.asar.unpacked\extensions\vscode\extension.js</code> ·
+    Debug log: <code>%TEMP%\clawd-focus-debug.log</code>.<br><br>
+    Commit <code>4bdcf00</code> · validated by 5 independent checks · report generated 2026-06-24 KST.
+  </footer>
+
+</div>
+</body>
+</html>

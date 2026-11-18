@@ -13,6 +13,11 @@
         "hooks": [
           {
             "type": "command",
+            "command": "{{REPO_DIR}}/.venv/bin/python {{REPO_DIR}}/hook_enforce_timestamp.py",
+            "timeout": 5000
+          },
+          {
+            "type": "command",
             "command": "{{REPO_DIR}}/.venv/bin/python {{REPO_DIR}}/hook_sync.py",
             "timeout": 30000,
             "async": true
@@ -38,6 +43,10 @@
             "type": "command",
             "command": "{{REPO_DIR}}/.venv/bin/python {{REPO_DIR}}/hook_turn_start.py",
             "async": true
+          },
+          {
+            "type": "command",
+            "command": "{{REPO_DIR}}/.venv/bin/python {{REPO_DIR}}/hook_inject_time.py"
           }
         ]
       }
@@ -50,6 +59,12 @@
             "type": "command",
             "command": "{{REPO_DIR}}/.venv/bin/python {{REPO_DIR}}/hook_sync.py",
             "timeout": 10000,
+            "async": true
+          },
+          {
+            "type": "command",
+            "command": "{{REPO_DIR}}/.venv/bin/python {{REPO_DIR}}/hook_strip_images.py",
+            "timeout": 5000,
             "async": true
           },
           {
@@ -75,6 +90,11 @@
             "command": "{{REPO_DIR}}/.venv/bin/python {{REPO_DIR}}/sync_conversations.py --scan",
             "timeout": 60000,
             "async": true
+          },
+          {
+            "type": "command",
+            "command": "{{REPO_DIR}}/.venv/bin/python {{REPO_DIR}}/hook_toolkit_drift.py",
+            "timeout": 5000
           }
         ]
       }
@@ -85,5 +105,12 @@
     "command": "~/.claude/statusline.sh",
     "padding": 1
   },
-  "autoUpdatesChannel": "latest"
+  "effortLevel": "medium",
+  "ultracode": true,
+  "outputStyle": "Concise",
+  "model": "opus[1m]",
+  "autoUpdatesChannel": "latest",
+  "cleanupPeriodDays": 3650,
+  "tui": "fullscreen",
+  "autoScrollEnabled": false
 }

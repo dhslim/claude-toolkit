@@ -1,0 +1,1127 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>셀프봇은 왜 "셀프봇"인가 — Discord Gateway vs REST</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg:        #16171a;
+    --surface:   #1e2024;
+    --card:      #26282d;
+    --card-2:    #2f3137;
+    --line:      #3a3d44;
+    --line-soft: #2c2f35;
+
+    --text:   #e2e4e8;
+    --muted:  #9aa0a8;
+    --faint:  #6e747d;
+
+    --blurple:      #5865f2;
+    --blurple-lit:  #8b93ff;
+    --blurple-soft: rgba(88,101,242,.13);
+    --red:          #f2484b;
+    --red-lit:      #ff7a7c;
+    --red-soft:     rgba(242,72,75,.11);
+    --cyan:         #34c4ff;
+    --cyan-soft:    rgba(52,196,255,.12);
+    --green:        #3fbf7f;
+    --amber:        #e8b341;
+
+    --font-sans: 'Pretendard', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+
+    --maxw: 760px;
+    --wide: 1080px;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 17px;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+    letter-spacing: -0.003em;
+  }
+
+  /* faint protocol-grid backdrop */
+  body::before {
+    content: "";
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,.015) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.015) 1px, transparent 1px);
+    background-size: 48px 48px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .wrap { position: relative; z-index: 1; }
+
+  /* ---------- layout primitives ---------- */
+  .col {
+    max-width: var(--maxw);
+    margin-inline: auto;
+    padding-inline: 24px;
+  }
+  .bleed {
+    max-width: var(--wide);
+    margin-inline: auto;
+    padding-inline: 24px;
+  }
+
+  a { color: var(--blurple-lit); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* ---------- inline tokens ---------- */
+  code, .mono { font-family: var(--font-mono); }
+  .k { /* inline code */
+    font-family: var(--font-mono);
+    font-size: .86em;
+    background: var(--card);
+    border: 1px solid var(--line-soft);
+    border-radius: 5px;
+    padding: .08em .4em;
+    color: #cdd2da;
+  }
+  .op {
+    display: inline-flex; align-items: center;
+    font-family: var(--font-mono);
+    font-size: .76em; font-weight: 600;
+    letter-spacing: .02em;
+    color: var(--cyan);
+    background: var(--cyan-soft);
+    border: 1px solid rgba(52,196,255,.28);
+    border-radius: 999px;
+    padding: .06em .55em;
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+  .tag {
+    display: inline-flex; align-items: center; gap: .3em;
+    font-family: var(--font-mono);
+    font-size: 11px; font-weight: 500;
+    letter-spacing: .03em;
+    border-radius: 4px;
+    padding: .12em .5em;
+    white-space: nowrap;
+  }
+  .tag--doc  { color: #7fd6a3; background: rgba(63,191,127,.12); border: 1px solid rgba(63,191,127,.3); }
+  .tag--re   { color: var(--amber); background: rgba(232,179,65,.1); border: 1px solid rgba(232,179,65,.3); }
+  .tag--spec { color: var(--red-lit); background: var(--red-soft); border: 1px solid rgba(242,72,75,.3); }
+
+  .legit  { color: var(--blurple-lit); }
+  .violate{ color: var(--red-lit); }
+
+  /* ---------- top frame badge ---------- */
+  .frame {
+    border-bottom: 1px solid var(--line-soft);
+    background: rgba(18,19,22,.7);
+    backdrop-filter: blur(6px);
+    position: sticky; top: 0; z-index: 40;
+  }
+  .frame__row {
+    max-width: var(--wide); margin-inline: auto;
+    padding: 11px 24px;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  }
+  .frame__badge {
+    font-family: var(--font-mono); font-size: 11.5px; letter-spacing: .04em;
+    color: var(--muted);
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .frame__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px rgba(63,191,127,.18); }
+  .frame__nav { display: flex; gap: 18px; font-size: 12.5px; font-family: var(--font-mono); }
+  .frame__nav a { color: var(--faint); }
+  .frame__nav a:hover { color: var(--text); text-decoration: none; }
+  @media (max-width: 720px){ .frame__nav { display:none; } }
+
+  /* ---------- hero ---------- */
+  .hero { padding: 84px 0 54px; }
+  .hero__eyebrow {
+    font-family: var(--font-mono); font-size: 13px; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--blurple-lit); margin-bottom: 22px;
+  }
+  .hero__title {
+    font-size: clamp(34px, 6vw, 58px);
+    line-height: 1.08;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    margin: 0 0 8px;
+  }
+  .hero__title .accent { color: var(--blurple-lit); }
+  .hero__sub {
+    font-family: var(--font-mono);
+    font-size: clamp(13px, 2.4vw, 15px);
+    color: var(--faint);
+    letter-spacing: -0.01em;
+    margin-bottom: 34px;
+  }
+  .hero__thesis {
+    font-size: clamp(19px, 3vw, 23px);
+    line-height: 1.6;
+    color: var(--text);
+    border-left: 3px solid var(--blurple);
+    padding-left: 22px;
+    margin: 0 0 40px;
+    max-width: 660px;
+  }
+  .hero__thesis b { color: var(--blurple-lit); font-weight: 700; }
+  .hero__thesis .x { color: var(--red-lit); font-weight: 700; }
+
+  /* live connection chip in hero */
+  .conn {
+    display: inline-grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 16px;
+    align-items: center;
+    background: linear-gradient(180deg, var(--card) 0%, var(--surface) 100%);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px 20px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    box-shadow: 0 10px 40px -20px rgba(0,0,0,.8);
+  }
+  .conn__url { color: var(--muted); grid-column: 1 / -1; font-size: 12px; }
+  .conn__url b { color: var(--cyan); font-weight: 500; }
+  .conn__beat { display: flex; align-items: center; gap: 9px; }
+  .conn__arrow { color: var(--faint); }
+  .conn__pulse { width: 9px; height: 9px; border-radius: 50%; background: var(--blurple); }
+  .conn__status { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+  .conn__pdot { width: 9px; height: 9px; border-radius: 50%; background: var(--green); }
+  .conn__pdot--lbl { color: var(--green); }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .conn__pulse { animation: beat 2.4s ease-in-out infinite; }
+    .conn__pdot  { animation: glow 2.4s ease-in-out infinite; }
+  }
+  @keyframes beat {
+    0%, 100% { transform: scale(.7); opacity: .45; box-shadow: 0 0 0 0 rgba(88,101,242,.5); }
+    12%      { transform: scale(1.25); opacity: 1; box-shadow: 0 0 0 7px rgba(88,101,242,0); }
+    50%      { transform: scale(.85); opacity: .7; }
+  }
+  @keyframes glow {
+    0%,100% { box-shadow: 0 0 0 0 rgba(63,191,127,.0); }
+    12%     { box-shadow: 0 0 0 5px rgba(63,191,127,.18); }
+  }
+
+  /* ---------- color legend ---------- */
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 8px 22px;
+    margin-top: 40px; padding-top: 26px;
+    border-top: 1px solid var(--line-soft);
+    font-size: 13px; color: var(--muted);
+  }
+  .legend__item { display: inline-flex; align-items: center; gap: 8px; }
+  .legend__sw { width: 12px; height: 12px; border-radius: 3px; }
+
+  /* ---------- sections ---------- */
+  section.s { padding: 46px 0; }
+  .s__num {
+    font-family: var(--font-mono); font-size: 13px;
+    color: var(--blurple-lit); letter-spacing: .06em; margin-bottom: 10px;
+  }
+  .s__h {
+    font-size: clamp(23px, 3.6vw, 31px);
+    line-height: 1.25; font-weight: 750; letter-spacing: -0.02em;
+    margin: 0 0 22px;
+  }
+  .s p { margin: 0 0 18px; }
+  .s p .muted, .muted { color: var(--muted); }
+  .lead { font-size: 18.5px; }
+
+  .divider { height:1px; background: var(--line-soft); max-width: var(--wide); margin: 8px auto; }
+
+  /* callout box */
+  .note {
+    border-radius: 10px; padding: 16px 18px; margin: 24px 0;
+    font-size: 15px; line-height: 1.65;
+    border: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .note--warn { border-color: rgba(242,72,75,.35); background: var(--red-soft); }
+  .note--key  { border-color: rgba(88,101,242,.4); background: var(--blurple-soft); }
+  .note__lbl {
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: .06em;
+    text-transform: uppercase; display:block; margin-bottom: 6px;
+  }
+  .note--warn .note__lbl { color: var(--red-lit); }
+  .note--key  .note__lbl { color: var(--blurple-lit); }
+
+  /* ---------- figure scaffold ---------- */
+  figure { margin: 34px 0; }
+  .fig {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 26px;
+    box-shadow: 0 24px 60px -40px rgba(0,0,0,.9);
+  }
+  figcaption {
+    font-size: 13.5px; color: var(--faint); margin-top: 14px;
+    font-family: var(--font-mono); line-height: 1.6;
+  }
+  .fig__title {
+    font-family: var(--font-mono); font-size: 12px; letter-spacing: .05em;
+    text-transform: uppercase; color: var(--muted);
+    margin-bottom: 22px; display: flex; align-items: center; gap: 10px;
+  }
+  .fig__title::before { content:""; width: 18px; height: 1px; background: var(--blurple); }
+
+  /* ---------- diagram: two account types ---------- */
+  .acct { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 620px){ .acct { grid-template-columns: 1fr; } }
+  .acct__card {
+    border: 1px solid var(--line); border-radius: 11px; padding: 18px; background: var(--card);
+  }
+  .acct__card--bot  { border-color: rgba(88,101,242,.4); }
+  .acct__card--user { border-color: rgba(242,72,75,.4); }
+  .acct__name { font-weight: 700; font-size: 16px; margin-bottom: 4px; }
+  .acct__card--bot  .acct__name { color: var(--blurple-lit); }
+  .acct__card--user .acct__name { color: var(--red-lit); }
+  .acct__role { font-size: 13px; color: var(--muted); margin-bottom: 16px; }
+  .acct__row { display: flex; flex-direction: column; gap: 3px; padding: 10px 0; border-top: 1px solid var(--line-soft); }
+  .acct__rk { font-size: 11.5px; color: var(--faint); font-family: var(--font-mono); letter-spacing: .03em; }
+  .acct__rv { font-size: 13.5px; }
+  .acct__auth {
+    font-family: var(--font-mono); font-size: 12.5px;
+    background: var(--bg); border:1px solid var(--line-soft); border-radius: 6px;
+    padding: 6px 9px; display: inline-block;
+  }
+  .acct__foot {
+    grid-column: 1 / -1; margin-top: 4px;
+    font-size: 13px; color: var(--muted);
+    border: 1px dashed var(--line); border-radius: 9px; padding: 13px 15px;
+    background: rgba(0,0,0,.18);
+  }
+  .acct__foot b { color: var(--text); }
+
+  /* ---------- diagram: gateway vs rest ---------- */
+  .gw { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 640px){ .gw { grid-template-columns: 1fr; } }
+  .gw__pane { border:1px solid var(--line); border-radius: 11px; padding: 18px; background: var(--card); }
+  .gw__pane--gateway { border-color: rgba(52,196,255,.32); }
+  .gw__pane--rest    { border-color: rgba(88,101,242,.32); }
+  .gw__ph { font-family: var(--font-mono); font-size: 12.5px; letter-spacing:.04em; margin-bottom: 4px; }
+  .gw__pane--gateway .gw__ph { color: var(--cyan); }
+  .gw__pane--rest    .gw__ph { color: var(--blurple-lit); }
+  .gw__psub { font-size: 12.5px; color: var(--faint); margin-bottom: 16px; }
+  .gw__evt {
+    display:flex; align-items:center; gap: 10px; font-family: var(--font-mono);
+    font-size: 12.5px; padding: 7px 0; color: var(--muted);
+  }
+  .gw__evt .a { color: var(--cyan); }
+  .gw__evt .b { color: var(--blurple-lit); }
+  .gw__link {
+    margin-top: 18px; font-size: 13px; color: var(--text);
+    background: var(--blurple-soft); border:1px solid rgba(88,101,242,.32);
+    border-radius: 9px; padding: 12px 14px; line-height: 1.55;
+  }
+  .gw__link b { color: var(--blurple-lit); }
+
+  /* ---------- diagram: sequence ---------- */
+  .seq { position: relative; }
+  .seq__heads { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-bottom: 6px; }
+  .seq__head {
+    font-family: var(--font-mono); font-size: 12.5px; letter-spacing: .04em;
+    padding: 8px 12px; border-radius: 7px; text-align: center;
+  }
+  .seq__head--c { color: var(--text); background: var(--card-2); margin-right: 8px; }
+  .seq__head--g { color: var(--cyan); background: var(--cyan-soft); margin-left: 8px; }
+  .seq__track { position: relative; padding: 4px 0; }
+  .seq__track::before, .seq__track::after {
+    content:""; position:absolute; top:0; bottom:0; width: 2px; background: var(--line-soft);
+  }
+  .seq__track::before { left: calc(25% - 1px); }
+  .seq__track::after  { left: calc(75% - 1px); }
+
+  .seq__step {
+    position: relative; margin: 0; padding: 13px 0;
+    opacity: 1;
+  }
+  .seq__arrow {
+    display: grid; grid-template-columns: 1fr; align-items:center;
+    width: 54%; margin: 0 auto;
+  }
+  .seq__line {
+    height: 2px; position: relative; border-radius: 2px;
+  }
+  .seq__step--send .seq__line { background: linear-gradient(90deg, var(--blurple), var(--blurple-lit)); }
+  .seq__step--recv .seq__line { background: linear-gradient(90deg, var(--cyan), #7fdcff); }
+  .seq__line::after {
+    content:""; position: absolute; top: 50%; width: 0; height: 0;
+    border-top: 5px solid transparent; border-bottom: 5px solid transparent;
+    transform: translateY(-50%);
+  }
+  .seq__step--send .seq__line::after { right: -1px; border-left: 8px solid var(--blurple-lit); }
+  .seq__step--recv .seq__line::after { left: -1px;  border-right: 8px solid #7fdcff; }
+  .seq__cap { text-align: center; margin-top: 9px; }
+  .seq__cap .lbl { font-family: var(--font-mono); font-weight: 600; font-size: 13.5px; color: var(--text); }
+  .seq__cap .dsc { display:block; font-size: 12.5px; color: var(--faint); margin-top: 3px; line-height: 1.5; }
+  .seq__loop {
+    text-align:center; font-family: var(--font-mono); font-size: 12px; color: var(--green);
+    border: 1px dashed rgba(63,191,127,.4); border-radius: 8px; padding: 9px; margin-top: 12px;
+    background: rgba(63,191,127,.06);
+  }
+  .seq__branch {
+    text-align:center; font-family: var(--font-mono); font-size: 11.5px; color: var(--faint);
+    margin-top: 14px;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .seq__step { opacity: 0; transform: translateY(8px); transition: opacity .5s ease, transform .5s ease; }
+    .seq.is-lit .seq__step { opacity: 1; transform: none; }
+    .seq.is-lit .seq__step:nth-child(2){ transition-delay:.05s; }
+    .seq.is-lit .seq__step:nth-child(3){ transition-delay:.20s; }
+    .seq.is-lit .seq__step:nth-child(4){ transition-delay:.35s; }
+    .seq.is-lit .seq__step:nth-child(5){ transition-delay:.50s; }
+    .seq.is-lit .seq__step:nth-child(6){ transition-delay:.65s; }
+    .seq.is-lit .seq__step:nth-child(7){ transition-delay:.80s; }
+  }
+  @media (max-width: 560px){
+    .seq__arrow { width: 76%; }
+    .seq__head { font-size: 11px; }
+  }
+
+  /* ---------- diagram: heartbeat presence (SIGNATURE) ---------- */
+  .hb {
+    display: grid; grid-template-columns: 1.3fr 1fr; gap: 22px; align-items: center;
+  }
+  @media (max-width: 640px){ .hb { grid-template-columns: 1fr; } }
+  .hb__stage {
+    background: var(--bg); border:1px solid var(--line); border-radius: 12px;
+    padding: 26px; position: relative; overflow: hidden; min-height: 220px;
+    display:flex; flex-direction: column; justify-content: center; gap: 22px;
+  }
+  .hb__nodes { display:flex; align-items:center; justify-content: space-between; gap: 12px; }
+  .hb__node { text-align:center; font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+  .hb__chip {
+    width: 60px; height: 60px; border-radius: 14px; margin: 0 auto 9px;
+    display:flex; align-items:center; justify-content:center;
+    border:1px solid var(--line); background: var(--card);
+    font-size: 20px; transition: all .5s ease;
+  }
+  .hb__chip--c { color: var(--text); }
+  .hb__chip--g { color: var(--cyan); border-color: rgba(52,196,255,.4); }
+  .hb__wire { flex: 1; height: 2px; background: var(--line); position: relative; border-radius: 2px; }
+  .hb__packet {
+    position: absolute; top: 50%; left: 0; width: 12px; height: 12px; border-radius: 3px;
+    transform: translate(-50%,-50%); background: var(--blurple);
+    box-shadow: 0 0 12px 2px rgba(88,101,242,.6);
+  }
+  .hb__beatlbl {
+    text-align:center; font-family: var(--font-mono); font-size: 12px; color: var(--muted);
+  }
+  .hb__beatlbl .op { margin: 0 2px; }
+  .hb__presence {
+    display:flex; align-items:center; justify-content:center; gap: 10px;
+    font-family: var(--font-mono); font-size: 14px;
+    padding-top: 4px; border-top: 1px solid var(--line-soft);
+  }
+  .hb__pdot { width: 11px; height: 11px; border-radius: 50%; background: var(--green); transition: all .5s ease; }
+  .hb__pstate { color: var(--green); transition: color .5s ease; }
+
+  @media (prefers-reduced-motion: no-preference){
+    .hb__stage:not(.is-zombie) .hb__packet { animation: travel 2.6s cubic-bezier(.6,0,.4,1) infinite; }
+    .hb__stage:not(.is-zombie) .hb__chip--g { animation: ackpulse 2.6s ease-in-out infinite; }
+  }
+  @keyframes travel {
+    0%   { left: 0%;   opacity: 0; }
+    8%   { opacity: 1; }
+    46%  { left: 100%; opacity: 1; background: var(--blurple); }
+    50%  { left: 100%; background: var(--cyan); }
+    54%  { opacity: 1; }
+    92%  { left: 0%;   opacity: 1; background: var(--cyan); }
+    100% { left: 0%;   opacity: 0; }
+  }
+  @keyframes ackpulse {
+    0%,40%,100% { box-shadow: 0 0 0 0 rgba(52,196,255,0); }
+    50% { box-shadow: 0 0 0 6px rgba(52,196,255,.18); }
+  }
+
+  /* zombie state */
+  .hb__stage.is-zombie .hb__packet { left: 38%; opacity:.25; background: var(--faint); box-shadow:none; }
+  .hb__stage.is-zombie .hb__chip--g { color: var(--faint); border-color: var(--line); opacity:.5; }
+  .hb__stage.is-zombie .hb__wire { background: repeating-linear-gradient(90deg, var(--line) 0 6px, transparent 6px 12px); }
+  .hb__stage.is-zombie .hb__pdot { background: var(--faint); }
+  .hb__stage.is-zombie .hb__pstate { color: var(--faint); }
+  .hb__stage.is-zombie .hb__beatlbl { color: var(--red-lit); }
+
+  .hb__ctrl { }
+  .hb__btn {
+    font-family: var(--font-mono); font-size: 13px;
+    background: var(--card); color: var(--text);
+    border: 1px solid var(--line); border-radius: 9px;
+    padding: 11px 16px; cursor: pointer; transition: all .2s ease;
+    width: 100%; text-align: left;
+  }
+  .hb__btn:hover { border-color: var(--red); color: var(--red-lit); }
+  .hb__btn[aria-pressed="true"] { background: var(--red-soft); border-color: var(--red); color: var(--red-lit); }
+  .hb__exp { font-size: 14px; color: var(--muted); margin-top: 16px; line-height: 1.65; }
+  .hb__exp b { color: var(--text); }
+  .hb__exp .z { color: var(--red-lit); font-weight:600; }
+
+  /* ---------- diagram: annotated packet ---------- */
+  .pk { display: grid; grid-template-columns: 1fr; gap: 0; }
+  .pk__card {
+    font-family: var(--font-mono); font-size: 13px; line-height: 1.9;
+    background: var(--bg); border:1px solid var(--line); border-radius: 11px;
+    padding: 18px 20px; overflow-x: auto;
+  }
+  .pk__req { color: var(--green); }
+  .pk__req .m { color: var(--amber); }
+  .pk__hl { display: block; white-space: nowrap; }
+  .pk__hk { color: var(--cyan); }
+  .pk__hv { color: var(--muted); }
+  .pk__h {
+    display: block; border-radius: 6px; margin: 1px -8px; padding: 1px 8px;
+    cursor: default; transition: background .18s ease;
+    border-left: 2px solid transparent;
+  }
+  .pk__h[data-fp]:hover, .pk__h[data-fp].on {
+    background: var(--card); border-left-color: var(--blurple);
+  }
+  .pk__h[data-fp]{ cursor: help; }
+  .pk__callouts { margin-top: 16px; display:flex; flex-direction: column; gap: 10px; }
+  .pk__co {
+    display: none;
+    border:1px solid var(--line); border-radius: 9px; padding: 12px 14px;
+    background: var(--surface); font-size: 13.5px; line-height: 1.6; color: var(--muted);
+    font-family: var(--font-sans);
+  }
+  .pk__co.on { display: block; }
+  .pk__co h4 { margin: 0 0 5px; font-family: var(--font-mono); font-size: 12.5px; color: var(--text); display:flex; align-items:center; gap:8px; flex-wrap: wrap;}
+  .pk__hint { font-size: 12.5px; color: var(--faint); margin-top: 12px; font-family: var(--font-mono); }
+  .pk__json {
+    margin-top: 12px; font-family: var(--font-mono); font-size: 12px; color: var(--muted);
+    background: var(--bg); border:1px dashed var(--line); border-radius: 8px; padding: 12px 14px;
+    line-height: 1.7; white-space: pre-wrap;
+  }
+  .pk__json .j { color: var(--cyan); }
+  .pk__json .warn { color: var(--amber); }
+
+  /* ---------- matrix / comparison tables ---------- */
+  .mx { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .mx th, .mx td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+  .mx thead th {
+    font-family: var(--font-mono); font-size: 11.5px; letter-spacing: .04em;
+    text-transform: uppercase; color: var(--faint); font-weight: 500;
+    border-bottom: 1px solid var(--line);
+  }
+  .mx tbody tr:hover { background: rgba(255,255,255,.018); }
+  .mx__sig { font-weight: 600; }
+  .mx__why { color: var(--muted); font-size: 13px; }
+  .conf { font-family: var(--font-mono); font-size: 11px; padding: .15em .55em; border-radius: 4px; white-space: nowrap; }
+  .conf--lo  { color: var(--red-lit);  background: var(--red-soft); }
+  .conf--mid { color: var(--amber);    background: rgba(232,179,65,.1); }
+  .conf--hi  { color: var(--green);    background: rgba(63,191,127,.12); }
+  .mx tr.is-strong td { background: rgba(52,196,255,.05); }
+
+  .scroller { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  /* three-way comparison */
+  .cmp { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 640px; }
+  .cmp th, .cmp td { padding: 12px 13px; border-bottom: 1px solid var(--line-soft); text-align: left; vertical-align: top; }
+  .cmp thead th { font-family: var(--font-mono); font-size: 12px; border-bottom: 1px solid var(--line); }
+  .cmp thead th.h-off { color: var(--blurple-lit); }
+  .cmp thead th.h-cli { color: var(--text); }
+  .cmp thead th.h-bot { color: var(--red-lit); }
+  .cmp td.lab { font-family: var(--font-mono); font-size: 12px; color: var(--faint); }
+  .cmp .c-off { color: #aab1ff; }
+  .cmp .c-cli { color: var(--muted); }
+  .cmp .c-bot { color: var(--red-lit); }
+
+  /* ---------- footer / sources ---------- */
+  .foot { border-top: 1px solid var(--line-soft); margin-top: 40px; padding: 44px 0 80px; }
+  .foot__h { font-family: var(--font-mono); font-size: 12px; letter-spacing:.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 16px; }
+  .foot__list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; font-size: 13.5px; }
+  .foot__list li { color: var(--faint); }
+  .foot__list .conf { margin-right: 8px; }
+  .foot__end {
+    margin-top: 30px; padding-top: 22px; border-top: 1px solid var(--line-soft);
+    font-family: var(--font-mono); font-size: 12px; color: var(--faint);
+    display:flex; align-items:center; gap: 10px;
+  }
+
+  ::selection { background: rgba(88,101,242,.35); color: #fff; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- frame -->
+  <header class="frame">
+    <div class="frame__row">
+      <span class="frame__badge"><span class="frame__dot"></span> 교육용 · ToS-safe · 셀프봇 생태계 해부</span>
+      <nav class="frame__nav">
+        <a href="#s2">Gateway·REST</a>
+        <a href="#s3">Lifecycle</a>
+        <a href="#s6">탐지</a>
+        <a href="#s9">합법적 경로</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- hero -->
+  <div class="col">
+    <section class="hero">
+      <div class="hero__eyebrow">Discord Gateway WebSocket vs REST</div>
+      <h1 class="hero__title">셀프봇은 왜<br><span class="accent">"셀프봇"</span>인가</h1>
+      <div class="hero__sub">// why a user token from a CLI counts as a self-bot</div>
+
+      <p class="hero__thesis">
+        셀프봇을 규정하는 기술적 본질은 <span class="x">행동의 종류(읽기/쓰기)</span>가 아니라,
+        <b>공식 클라이언트 바깥에서 user token으로 자동화한다</b>는 사실 그 자체다.
+        "내 데이터만 읽는데?"에는 예외가 없다.
+      </p>
+
+      <div class="conn" role="img" aria-label="게이트웨이 연결: heartbeat가 도는 동안 presence는 online">
+        <div class="conn__url"><b>wss://gateway.discord.gg</b>/?v=10&amp;encoding=json</div>
+        <div class="conn__beat">
+          <span class="conn__pulse"></span>
+          <span class="op">op 1</span><span class="conn__arrow">→</span><span class="op">op 11</span>
+        </div>
+        <div class="conn__status">
+          <span class="conn__pdot"></span><span class="conn__pdot--lbl">presence: online</span>
+        </div>
+      </div>
+
+      <div class="legend" aria-hidden="false">
+        <span class="legend__item"><span class="legend__sw" style="background:var(--blurple)"></span> 공식·정상 경로</span>
+        <span class="legend__item"><span class="legend__sw" style="background:var(--red)"></span> 셀프봇·ToS 위반·탐지 위험</span>
+        <span class="legend__item"><span class="legend__sw" style="background:var(--cyan)"></span> 프로토콜·opcode</span>
+        <span class="legend__item"><span class="tag tag--doc">documented</span> 공식 문서</span>
+        <span class="legend__item"><span class="tag tag--re">reverse-eng</span> 커뮤니티 분석</span>
+      </div>
+    </section>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- §1 -->
+  <div class="col">
+    <section class="s" id="s1">
+      <div class="s__num">01 — 토대</div>
+      <h2 class="s__h">계정에는 두 종류가 있다 — Bot vs User</h2>
+      <p class="lead">모든 논의는 토큰 한 줄에서 갈린다. <span class="k">Authorization</span> 헤더가 어떻게 생겼느냐가
+      뒤따르는 탐지·ToS 이야기의 뿌리다.</p>
+
+      <figure>
+        <div class="fig">
+          <div class="fig__title">account types · authorization scheme</div>
+          <div class="acct">
+            <div class="acct__card acct__card--bot">
+              <div class="acct__name">Bot account</div>
+              <div class="acct__role">Developer Portal에서 등록 · 자동화 <b class="legit">허용</b></div>
+              <div class="acct__row"><span class="acct__rk">authorization</span><span class="acct__rv"><span class="acct__auth">Bot &lt;token&gt;</span></span></div>
+              <div class="acct__row"><span class="acct__rk">oauth2</span><span class="acct__rv"><span class="acct__auth">Bearer &lt;token&gt;</span></span></div>
+              <div class="acct__row"><span class="acct__rk">공식 자동화 경로</span><span class="acct__rv legit">있음 (Bot API)</span></div>
+              <div class="acct__row"><span class="acct__rk">셀프봇 여부</span><span class="acct__rv legit">아니오</span></div>
+            </div>
+            <div class="acct__card acct__card--user">
+              <div class="acct__name">User account</div>
+              <div class="acct__role">사람이 공식 클라이언트로 쓰는 것 <b>전제</b></div>
+              <div class="acct__row"><span class="acct__rk">authorization</span><span class="acct__rv"><span class="acct__auth">&lt;token&gt;</span> <span class="muted">(prefix 없음)</span></span></div>
+              <div class="acct__row"><span class="acct__rk">문서화</span><span class="acct__rv"><span class="tag tag--re">reverse-eng</span> only</span></div>
+              <div class="acct__row"><span class="acct__rk">공식 자동화 경로</span><span class="acct__rv violate">없음</span></div>
+              <div class="acct__row"><span class="acct__rk">셀프봇 여부</span><span class="acct__rv violate">자동화 시 = 셀프봇</span></div>
+            </div>
+            <div class="acct__foot">
+              역설의 씨앗 — 커뮤니티가 <span class="k">Authorization: Self-Bot &lt;token&gt;</span> 같은 <b>구분용 헤더</b>를 추가하자고
+              요청했지만 Discord는 채택하지 않았다. 그래서 순수 REST 셀프봇 트래픽은 정상 클라이언트와
+              <b>서버단에서 구분하기 어렵다</b>. (이 역설은 §6에서 되돌아온다.)
+            </div>
+          </div>
+        </div>
+        <figcaption>봇에는 sanctioned된 자동화 트랙(Bot API)이 있고, 유저 계정에는 없다 — 이 비대칭이 핵심.</figcaption>
+      </figure>
+    </section>
+  </div>
+
+  <!-- §2 -->
+  <div class="bleed">
+    <section class="s" id="s2">
+      <div class="col" style="padding-inline:0">
+        <div class="s__num">02 — 아키텍처</div>
+        <h2 class="s__h">Discord API는 두 개의 면을 가진다</h2>
+        <p class="lead">하나는 Discord가 너에게 밀어주는 실시간 스트림(<span class="legit">Gateway</span>),
+        다른 하나는 네가 요청을 보내는 창구(<span style="color:var(--cyan)">REST</span>). 이 분업을 잡아야 나머지가 말이 된다.</p>
+      </div>
+
+      <figure>
+        <div class="fig">
+          <div class="fig__title">two surfaces · push vs request/response</div>
+          <div class="gw">
+            <div class="gw__pane gw__pane--gateway">
+              <div class="gw__ph">Gateway — WebSocket (push)</div>
+              <div class="gw__psub">영속 연결. Discord가 이벤트를 실시간으로 밀어준다 (server → client).</div>
+              <div class="gw__evt"><span class="a">▼</span> <span class="op">op 0</span> MESSAGE_CREATE</div>
+              <div class="gw__evt"><span class="a">▼</span> <span class="op">op 0</span> TYPING_START</div>
+              <div class="gw__evt"><span class="a">▼</span> <span class="op">op 0</span> PRESENCE_UPDATE</div>
+              <div class="gw__evt"><span class="a">▼</span> <span class="op">op 0</span> GUILD_MEMBER_ADD …</div>
+            </div>
+            <div class="gw__pane gw__pane--rest">
+              <div class="gw__ph">REST — HTTP (request / response)</div>
+              <div class="gw__psub">네가 행동을 일으킨다. 보내고 → 응답받는다 (client → Discord).</div>
+              <div class="gw__evt"><span class="b">▶</span> <span class="k">POST /channels/{id}/messages</span></div>
+              <div class="gw__evt"><span class="b">◀</span> <span class="mono">201 Created</span> + message object</div>
+              <div class="gw__evt"><span class="b">▶</span> <span class="mono">kick / ban / 권한 변경 …</span></div>
+            </div>
+            <div class="gw__link" style="grid-column:1/-1">
+              <b>한 동작, 두 표면</b> — 메시지 전송은 REST <span class="k">POST …/messages</span>이고,
+              공식 문서상 이 동작이 곧바로 <span class="op">op 0</span> <b>MESSAGE_CREATE</b>를 Gateway로 <b>fire</b>한다.
+              POST의 HTTP 응답과 Gateway의 push가 <i>같은 message 객체</i>를 실어 온다. 그래서 UI는 내 메시지든 남 메시지든
+              Gateway 이벤트라는 하나의 경로로 렌더한다. (REST 폴링이 아니라 — REST로 행동, Gateway로 상태 유지.)
+            </div>
+          </div>
+        </div>
+        <figcaption>두 레이어는 독립된 rate limit을 가진다. intents는 Gateway만 필터링한다(privileged intent가 일부 REST를 gate하는 예외는 있음).</figcaption>
+      </figure>
+    </section>
+  </div>
+
+  <!-- §3 -->
+  <div class="bleed">
+    <section class="s" id="s3">
+      <div class="col" style="padding-inline:0">
+        <div class="s__num">03 — 라이프사이클</div>
+        <h2 class="s__h">공식 클라이언트는 어떻게 "항상 켜진" 연결을 세우나</h2>
+        <p class="lead">앱을 켜면 즉시 일어나는 핸드셰이크. 이 시퀀스가 곧 <b>"정상 클라이언트의 모습"</b>이라는 기준선이다.</p>
+      </div>
+
+      <figure>
+        <div class="fig">
+          <div class="fig__title">connection lifecycle · HELLO → IDENTIFY → heartbeat → dispatch</div>
+          <div class="seq" id="seq">
+            <div class="seq__heads">
+              <div class="seq__head seq__head--c">Client</div>
+              <div class="seq__head seq__head--g">Gateway</div>
+            </div>
+            <div class="seq__track">
+              <div class="seq__step seq__step--send">
+                <div class="seq__arrow"><div class="seq__line"></div></div>
+                <div class="seq__cap"><span class="lbl">connect</span><span class="dsc"><span class="k">wss://gateway.discord.gg/?v=10&amp;encoding=json</span></span></div>
+              </div>
+              <div class="seq__step seq__step--recv">
+                <div class="seq__arrow"><div class="seq__line"></div></div>
+                <div class="seq__cap"><span class="lbl"><span class="op">op 10</span> HELLO</span><span class="dsc">heartbeat_interval ≈ 41250ms <span class="muted">(per-connection 동적값 · 공식 예시는 45000ms)</span></span></div>
+              </div>
+              <div class="seq__step seq__step--send">
+                <div class="seq__arrow"><div class="seq__line"></div></div>
+                <div class="seq__cap"><span class="lbl"><span class="op">op 1</span> Heartbeat</span><span class="dsc">루프 시작 <span class="muted">(IDENTIFY와 병렬 — ACK를 기다리지 않음)</span> · 첫 박동 지연 = interval × jitter</span></div>
+              </div>
+              <div class="seq__step seq__step--recv">
+                <div class="seq__arrow"><div class="seq__line"></div></div>
+                <div class="seq__cap"><span class="lbl"><span class="op">op 11</span> Heartbeat ACK</span><span class="dsc">서버가 박동을 확인</span></div>
+              </div>
+              <div class="seq__step seq__step--send">
+                <div class="seq__arrow"><div class="seq__line"></div></div>
+                <div class="seq__cap"><span class="lbl"><span class="op">op 2</span> IDENTIFY</span><span class="dsc">d: { token, intents, properties:{ os, browser, device } }</span></div>
+              </div>
+              <div class="seq__step seq__step--recv">
+                <div class="seq__arrow"><div class="seq__line"></div></div>
+                <div class="seq__cap"><span class="lbl"><span class="op">op 0</span> READY</span><span class="dsc">t=READY · session_id + resume_gateway_url 수신</span></div>
+              </div>
+              <div class="seq__step seq__step--recv">
+                <div class="seq__arrow"><div class="seq__line"></div></div>
+                <div class="seq__cap"><span class="lbl"><span class="op">op 0</span> DISPATCH …</span><span class="dsc">이후 op1/op11 박동과 실시간 이벤트가 교차</span></div>
+              </div>
+              <div class="seq__loop">↻ op 1 ⇄ op 11 — heartbeat_interval마다 영원히 반복</div>
+              <div class="seq__branch">분기: 끊기면 <span class="op">op 6</span> RESUME(seq부터 replay) · <span class="op">op 9</span> Invalid Session → 재-IDENTIFY · 24h당 IDENTIFY 1000회 한도가 RESUME의 존재 이유</div>
+            </div>
+          </div>
+        </div>
+        <figcaption>seq 번호(s)는 모든 op 0에 실린다. 클라이언트는 최신 s를 캐시해 heartbeat와 RESUME에 넣어 누락 이벤트를 replay받는다.</figcaption>
+      </figure>
+    </section>
+  </div>
+
+  <!-- §4 + heartbeat signature -->
+  <div class="col">
+    <section class="s" id="s4">
+      <div class="s__num">04 — 핵심 정밀 포인트</div>
+      <h2 class="s__h">online을 유지하는 건 소켓이 아니라 <span style="color:var(--green)">ACK되는 heartbeat</span>다</h2>
+      <p>흔한 오해: "WebSocket이 열려 있으면 online." 정확히는 — 클라이언트가 <span class="op">op 1</span>을 보내고
+      서버가 <span class="op">op 11</span>로 <b>응답(ACK)</b>하는 박동이 살아 있어야 online이다.
+      박동을 보내도 ACK를 못 받으면 그 연결은 <span class="violate">zombied</span> 상태가 되고, presence는 offline으로 떨어진다.</p>
+
+      <p class="muted">아래에서 직접 끊어보라 — 오른쪽 버튼으로 ACK를 멈추면 패킷이 식고 presence가 죽는다.</p>
+
+      <figure>
+        <div class="fig">
+          <div class="fig__title">live demo · heartbeat ⇄ ack keeps you online</div>
+          <div class="hb">
+            <div class="hb__stage" id="hbStage">
+              <div class="hb__nodes">
+                <div class="hb__node"><div class="hb__chip hb__chip--c">▢</div>Client</div>
+                <div class="hb__wire"><span class="hb__packet" id="hbPacket"></span></div>
+                <div class="hb__node"><div class="hb__chip hb__chip--g">◇</div>Gateway</div>
+              </div>
+              <div class="hb__beatlbl" id="hbLabel"><span class="op">op 1</span> heartbeat → <span class="op">op 11</span> ack</div>
+              <div class="hb__presence">
+                <span class="hb__pdot" id="hbDot"></span>
+                <span class="hb__pstate" id="hbState">presence: online</span>
+              </div>
+            </div>
+            <div class="hb__ctrl">
+              <button class="hb__btn" id="hbBtn" aria-pressed="false" aria-controls="hbStage">
+                ⏻ ACK 중단 (heartbeat 멈춤)
+              </button>
+              <div class="hb__exp" id="hbExp">
+                <b>정상</b> — 박동이 돌고 ACK가 돌아오는 한 presence는 <span style="color:var(--green)">online</span>.
+                이것이 공식 클라이언트가 "켜져 있는" 상태의 정의다.
+              </div>
+            </div>
+          </div>
+        </div>
+        <figcaption>1000/1001 외 close code로 끊고 RESUME해야 정상 복구된다. 안 그러면 presence가 stuck/offline.</figcaption>
+      </figure>
+
+      <div class="note note--key">
+        <span class="note__lbl">왜 이게 탐지와 연결되나</span>
+        공식 클라이언트는 이 박동 때문에 <b>거의 항상 gateway 세션을 들고</b> 있다.
+        우리의 REST-only CLI는 이 박동을 하지 않는다 → presence가 늘 offline이고, gateway 세션이 없다.
+        이 차이가 §6 탐지 신호의 물질적 근거가 된다.
+      </div>
+    </section>
+  </div>
+
+  <!-- §5 annotated packet -->
+  <div class="col">
+    <section class="s" id="s5">
+      <div class="s__num">05 — 지문</div>
+      <h2 class="s__h">REST 호출 하나에 박힌 클라이언트 정체성</h2>
+      <p class="lead">단 한 번의 요청에도 "내가 누구인지"가 촘촘히 적혀 나간다. 헤더에 마우스를 올려보라 —
+      어떤 건 <span class="tag tag--doc">documented</span>, 어떤 건 <span class="tag tag--re">reverse-eng</span>이다.</p>
+
+      <figure>
+        <div class="fig">
+          <div class="fig__title">annotated request · POST /channels/{id}/messages</div>
+          <div class="pk">
+            <div class="pk__card" id="pkCard">
+              <span class="pk__req"><span class="m">POST</span> /api/v10/channels/123/messages HTTP/2</span>
+              <span class="pk__h" data-fp="auth"><span class="pk__hk">authorization:</span> <span class="pk__hv">&lt;bare user token&gt;</span></span>
+              <span class="pk__h" data-fp="ua"><span class="pk__hk">user-agent:</span> <span class="pk__hv">Mozilla/5.0 … discord/1.0 Electron/30 …</span></span>
+              <span class="pk__h" data-fp="xsp"><span class="pk__hk">x-super-properties:</span> <span class="pk__hv">eyJvcyI6IldpbmRvd3MiLCJicm93c2Vy…</span></span>
+              <span class="pk__h" data-fp="loc"><span class="pk__hk">x-discord-locale:</span> <span class="pk__hv">ko</span></span>
+              <span class="pk__h" data-fp="dbg"><span class="pk__hk">x-debug-options:</span> <span class="pk__hv">bugReporterEnabled</span></span>
+              <span class="pk__hl"><span class="pk__hk">content-type:</span> <span class="pk__hv">application/json</span></span>
+            </div>
+
+            <div class="pk__hint">↑ 색이 있는 헤더에 hover / tap — 지문 콜아웃이 펼쳐집니다</div>
+
+            <div class="pk__callouts">
+              <div class="pk__co" data-co="auth">
+                <h4>authorization <span class="tag tag--re">reverse-eng</span></h4>
+                bot은 <span class="k">Bot &lt;token&gt;</span>, OAuth2는 <span class="k">Bearer &lt;token&gt;</span> — 둘 다 공식 문서화.
+                <b>prefix 없는 bare 토큰</b>은 user/self 토큰의 형태로, 실재하지만 Discord가 공식 문서화하지 않는다(자동화가 ToS 위반이라).
+              </div>
+              <div class="pk__co" data-co="ua">
+                <h4>user-agent <span class="tag tag--doc">documented</span> / <span class="tag tag--re">reverse-eng</span></h4>
+                봇은 UA에 <span class="k">DiscordBot ($url, $version)</span>를 넣는 게 <b>공식 요구</b>.
+                데스크톱 클라이언트의 Electron/Chromium UA는 reverse-eng. 중요한 점: <b>X-Super-Properties가 없으면 Discord는 UA에서 client properties를 파싱</b>한다.
+              </div>
+              <div class="pk__co" data-co="xsp">
+                <h4>x-super-properties <span class="tag tag--re">reverse-eng</span></h4>
+                모든 outgoing HTTP 요청에 붙는 <b>base64-encoded JSON</b>(암호화 아님). Gateway IDENTIFY의 properties와 일관되게 유지된다.
+                커뮤니티 문서가 "anti-abuse 시스템에서의 중요성 때문에 포함을 highly recommended"라 표현 — 즉 탐지에 가장 documented된 근거.
+                <div class="pk__json">{
+  <span class="j">"os"</span>: "Windows",  <span class="j">"browser"</span>: "Discord Client",
+  <span class="j">"release_channel"</span>: "stable",
+  <span class="j">"client_build_number"</span>: 285471,  <span class="warn">← 가장 휘발성: JS 번들에서 scrape. stale 시 anti-abuse flag trip 가능</span>
+  <span class="j">"os_version"</span>: "10.0.19045",  <span class="j">"system_locale"</span>: "ko"
+}</div>
+              </div>
+              <div class="pk__co" data-co="loc">
+                <h4>x-discord-locale <span class="tag tag--re">reverse-eng</span></h4>
+                로케일 지정. Discord는 <span class="k">X-Discord-Locale → Accept-Language → 계정 설정</span> 순으로 로케일을 해석한다(커뮤니티 문서).
+              </div>
+              <div class="pk__co" data-co="dbg">
+                <h4>x-debug-options <span class="tag tag--re">reverse-eng</span></h4>
+                <span class="k">canary</span>는 canary API로 라우팅, <span class="k">trace</span>는 APM 트레이싱 강제(추가로 X-Client-Trace-ID 필요, 트레이스 열람은 Discord 직원만).
+              </div>
+            </div>
+          </div>
+        </div>
+        <figcaption>X-Super-Properties / X-Discord-Locale / X-Debug-Options는 공식 개발자 문서가 아니라 community Userdoccers(docs.discord.food) 기준. 빌드용 sanctioned 경로는 Bot API다.</figcaption>
+      </figure>
+    </section>
+  </div>
+
+  <!-- §6 detection matrix -->
+  <div class="bleed">
+    <section class="s" id="s6">
+      <div class="col" style="padding-inline:0">
+        <div class="s__num">06 — 탐지</div>
+        <h2 class="s__h">클라이언트는 어떻게 지문으로 식별되는가</h2>
+        <p class="lead">네 가지 신호가 흔히 거론된다. 하지만 신뢰도는 제각각이고, 하나는 오히려 <b>거꾸로</b>다.</p>
+      </div>
+
+      <div class="note note--warn">
+        <span class="note__lbl">⚠ 먼저 — 이건 추정이다</span>
+        Discord는 탐지 내부를 <b>공개하지 않는다</b>. 아래는 community reverse-engineering 기반의 <b>plausible / unverified</b> 목록이지,
+        공식 확인이 아니다. 신호별 신뢰도를 차등해서 읽어야 한다.
+      </div>
+
+      <figure>
+        <div class="fig">
+          <div class="fig__title">detection signals · differentiated confidence</div>
+          <div class="scroller">
+            <table class="mx">
+              <thead>
+                <tr><th style="width:30%">신호</th><th>신뢰도</th><th>gateway 필요?</th><th>왜</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="mx__sig">gateway 세션 없는<br>user-token REST 호출</td>
+                  <td><span class="conf conf--lo">낮음 · 어쩌면 backwards</span></td>
+                  <td>—</td>
+                  <td class="mx__why">커뮤니티 분석은 오히려 순수 REST 자동화가 <b>더 탐지하기 어렵다</b>고 본다(강한 지문이 gateway 이벤트를 요구하므로). 합법 클라이언트도 일부 흐름에서 gateway 없이 REST를 친다 → 깔끔한 판별자가 아니다.</td>
+                </tr>
+                <tr>
+                  <td class="mx__sig">누락·변형·불일치<br>X-Super-Properties</td>
+                  <td><span class="conf conf--hi">높음</span></td>
+                  <td>아니오</td>
+                  <td class="mx__why">커뮤니티 문서가 anti-abuse에서의 중요성을 명시. X-Super-Properties가 없으면 UA에서 파싱하므로, 둘이 어긋나면 신호가 된다.</td>
+                </tr>
+                <tr>
+                  <td class="mx__sig">anomalous /<br>non-official User-Agent</td>
+                  <td><span class="conf conf--hi">높음</span></td>
+                  <td>아니오</td>
+                  <td class="mx__why">공식 클라이언트/봇 UA와 다른 형태는 비공식 클라이언트의 직접 신호.</td>
+                </tr>
+                <tr>
+                  <td class="mx__sig">non-human cadence</td>
+                  <td><span class="conf conf--mid">중간 · 행동 휴리스틱</span></td>
+                  <td>일부</td>
+                  <td class="mx__why">빠른 pagination, 완벽히 규칙적인 간격 — 사람의 패턴이 아니다.</td>
+                </tr>
+                <tr class="is-strong">
+                  <td class="mx__sig" style="color:var(--cyan)">[가장 강함] gateway 의존 지문</td>
+                  <td><span class="conf conf--hi">높음</span></td>
+                  <td><b style="color:var(--cyan)">필수</b></td>
+                  <td class="mx__why">TYPING_START 타이밍 갭(셀프봇 5–50ms vs 사람 300–500ms), 채널을 numeric ID 순서로 touch — 모두 <b>gateway 이벤트가 있어야</b> 측정된다.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <figcaption>역설: 가장 강력한 지문은 gateway 이벤트를 요구한다. 그래서 gateway를 안 여는 순수 REST CLI는 — 헤더만 들키지 않으면 — 오히려 그 지문망을 피해 간다.</figcaption>
+      </figure>
+    </section>
+  </div>
+
+  <!-- §7 three-way -->
+  <div class="bleed">
+    <section class="s" id="s7">
+      <div class="col" style="padding-inline:0">
+        <div class="s__num">07 — 위치잡기</div>
+        <h2 class="s__h">우리의 정직한 CLI vs 위장형 셀프봇</h2>
+        <p class="lead">네 CLI는 두 극단 사이에 있다. 정직한 CLI는 위장을 안 해서 헤더로 티가 나고, 위장형 셀프봇은
+        클라이언트를 흉내 내지만 <b>더 깊은 지문</b>에서 무너진다.</p>
+      </div>
+
+      <figure>
+        <div class="fig">
+          <div class="fig__title">official client · honest REST-cli · stealth self-bot</div>
+          <div class="scroller">
+            <table class="cmp">
+              <thead>
+                <tr>
+                  <th class="lab"></th>
+                  <th class="h-off">공식 클라이언트</th>
+                  <th class="h-cli">정직한 REST-only CLI <span class="muted">(우리)</span></th>
+                  <th class="h-bot">위장형 셀프봇</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td class="lab">Gateway 연결</td><td class="c-off">영속 유지</td><td class="c-cli">없음</td><td class="c-bot">위장 유지</td></tr>
+                <tr><td class="lab">X-Super-Properties</td><td class="c-off">정합</td><td class="c-cli">없음 / 라이브러리 기본</td><td class="c-bot">forge</td></tr>
+                <tr><td class="lab">User-Agent</td><td class="c-off">Electron/Chromium</td><td class="c-cli">라이브러리 기본</td><td class="c-bot">spoof</td></tr>
+                <tr><td class="lab">presence</td><td class="c-off">online</td><td class="c-cli">항상 offline</td><td class="c-bot">online 위장</td></tr>
+                <tr><td class="lab">cadence</td><td class="c-off">인간적</td><td class="c-cli">기계적</td><td class="c-bot">인위적 delay</td></tr>
+                <tr><td class="lab">무너지는 지점</td><td class="c-off">—</td><td class="c-cli">헤더 불일치 · §5 신호</td><td class="c-bot">TLS-handshake fingerprint · gateway launch signature</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <figcaption>위장형 셀프봇 라이브러리(discord.js-selfbot-v13 등)는 ws.properties와 http headers를 함께 forge하지만, 표준 Node HTTP 클라이언트의 TLS 지문은 실제 브라우저와 불일치한다. discord.js-selfbot-v13는 archived, npm 'discord.js-selfbot'은 ~6년 stale — 'variants'가 맞는 표현. 결론: 헤더 spoofing만으로는 불충분하다.</figcaption>
+      </figure>
+    </section>
+  </div>
+
+  <!-- §8 ToS -->
+  <div class="col">
+    <section class="s" id="s8">
+      <div class="s__num">08 — 규범</div>
+      <h2 class="s__h">무엇이 금지되고, 실제 단속은 어떤가</h2>
+      <p>기술을 규범으로 착지시키자. <b>금지의 범위</b>와 <b>실제 enforcement</b>는 분리해서 봐야 정직하다.</p>
+
+      <div class="note note--warn">
+        <span class="note__lbl">documented — 금지의 본질</span>
+        "automating normal user accounts (self-bots) outside of the OAuth2/bot API is forbidden, and can result in account termination."
+        Platform Manipulation Policy: <b>"Modifying a user account to perform automated actions — regardless of the type of action."</b>
+        → read-only / 자기 데이터 <b>예외 없음</b>.
+      </div>
+
+      <p><b>명시적으로 단속되는 타깃</b>(documented): mass-DM 스패머, scraper, token seller/generator,
+      raid·account-creation 도구, CAPTCHA-solving 서비스.</p>
+
+      <p><span class="muted">"조용한 개인 read-only 자동화는 실제로 거의 actioned되지 않는다"</span>는 부분은
+      커뮤니티 <b>관찰</b>이지 보장이 아니다. escalation은 — 먼저 경고
+      <span class="muted">("Your account participated in … self-bots")</span> → 지속 시 영구 ban, 극단적으로 server/IP ban.
+      <b>non-zero risk</b>다.</p>
+    </section>
+  </div>
+
+  <!-- §9 legit path -->
+  <div class="col">
+    <section class="s" id="s9">
+      <div class="s__num">09 — 합법적인 길</div>
+      <h2 class="s__h">내 데이터는 <span class="legit">Request Data</span>로, 자동화는 <span class="legit">Bot API</span>로</h2>
+
+      <div class="acct" style="margin-top:8px">
+        <div class="acct__card acct__card--bot" style="border-color:var(--line)">
+          <div class="acct__name legit">① 내 데이터를 원한다</div>
+          <div class="acct__role">sanctioned self-data export</div>
+          <p style="font-size:14px;color:var(--muted);margin:6px 0 0;line-height:1.65">
+            User Settings → <span class="k">Data &amp; Privacy</span> → <b>Request Data</b>
+            <span class="muted">(구버전 'Privacy &amp; Safety', 모바일 'Request all of my data')</span>.
+            결과는 메시지·서버·활동 JSON의 ZIP을 <b>이메일 링크</b>로 발송 — 보통 3–30일, 링크 30일 유효.
+            서버 전체 메시지 포함은 옵션 토글(기본 off).
+          </p>
+        </div>
+        <div class="acct__card acct__card--bot" style="border-color:var(--line)">
+          <div class="acct__name legit">② 자동화를 원한다</div>
+          <div class="acct__role">the only supported path</div>
+          <p style="font-size:14px;color:var(--muted);margin:6px 0 0;line-height:1.65">
+            <b>Bot API</b> — <span class="k">Bot &lt;token&gt;</span> + <span class="k">DiscordBot</span> User-Agent + Gateway intents.
+            우리 toolkit의 <span class="k">discord-cli.js</span>(봇)가 바로 이 길이다.
+            <span class="k">discord-user-cli.js</span>는 user token을 쓰므로 — 정의상 — 셀프봇 영역에 있다.
+          </p>
+        </div>
+      </div>
+
+      <div class="note note--key" style="margin-top:24px">
+        <span class="note__lbl">한 줄 정리</span>
+        셀프봇 생태계는 "공식 클라이언트를 얼마나 정교하게 흉내 내느냐"의 군비 경쟁이다.
+        무언가를 <b>빌드</b>하려는 사람에게 옳고 안정적인 토대는 — 흉내가 아니라 — 문서화된 <b class="legit">Bot 경로</b>다.
+      </div>
+    </section>
+  </div>
+
+  <!-- footer / sources -->
+  <div class="col">
+    <footer class="foot">
+      <div class="foot__h">출처 · sources</div>
+      <ul class="foot__list">
+        <li><span class="conf conf--hi">documented</span> Discord Developer Docs — Gateway / Opcodes (<span class="mono">docs.discord.com/developers/topics/gateway</span>)</li>
+        <li><span class="conf conf--hi">documented</span> Discord Developer Docs — Create Message / Gateway events</li>
+        <li><span class="conf conf--hi">documented</span> Automated User Accounts (Self-Bots) — support.discord.com</li>
+        <li><span class="conf conf--hi">documented</span> Platform Manipulation Policy Explainer — discord.com/safety</li>
+        <li><span class="conf conf--hi">documented</span> Requesting a Copy of your Data — support.discord.com</li>
+        <li><span class="conf conf--mid">reverse-eng</span> Discord Userdoccers — <span class="mono">docs.discord.food/reference</span> (X-Super-Properties, headers, user token)</li>
+        <li><span class="conf conf--mid">reverse-eng</span> discord.js-selfbot-v13 discussions · Discord-Platform-Spoofer (evasion 기법)</li>
+      </ul>
+      <div class="foot__end">
+        <span class="frame__dot"></span>
+        교육용 · ToS-safe — 셀프봇 생태계를 설명하되, 지원되는 길은 Bot API다.
+      </div>
+    </footer>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---- heartbeat signature toggle ---- */
+  var stage = document.getElementById("hbStage");
+  var btn = document.getElementById("hbBtn");
+  var dot = document.getElementById("hbDot");
+  var state = document.getElementById("hbState");
+  var label = document.getElementById("hbLabel");
+  var exp = document.getElementById("hbExp");
+
+  var aliveExp =
+    '<b>정상</b> — 박동이 돌고 ACK가 돌아오는 한 presence는 <span style="color:var(--green)">online</span>. ' +
+    '이것이 공식 클라이언트가 "켜져 있는" 상태의 정의다.';
+  var zombieExp =
+    '<span class="z">zombied</span> — 박동을 보내도 <b>op 11 ACK가 안 온다</b>. 연결은 살아있는 듯 보이지만 ' +
+    'presence는 <span class="z">offline</span>으로 떨어진다. 열린 소켓이 아니라 <b>ACK되는 heartbeat</b>가 online을 유지한다.';
+
+  if (btn) {
+    btn.addEventListener("click", function () {
+      var zombie = stage.classList.toggle("is-zombie");
+      btn.setAttribute("aria-pressed", String(zombie));
+      if (zombie) {
+        btn.textContent = "↻ 연결 복구 (heartbeat 재개)";
+        state.textContent = "presence: offline";
+        label.innerHTML = '<span class="op">op 1</span> heartbeat → <b>✕ no ack</b>';
+        exp.innerHTML = zombieExp;
+      } else {
+        btn.textContent = "⏻ ACK 중단 (heartbeat 멈춤)";
+        state.textContent = "presence: online";
+        label.innerHTML = '<span class="op">op 1</span> heartbeat → <span class="op">op 11</span> ack';
+        exp.innerHTML = aliveExp;
+      }
+    });
+  }
+
+  /* ---- annotated packet: hover + tap reveal ---- */
+  var card = document.getElementById("pkCard");
+  if (card) {
+    var headers = card.querySelectorAll(".pk__h[data-fp]");
+    var cos = document.querySelectorAll(".pk__co");
+    function showCo(key, on) {
+      cos.forEach(function (c) {
+        if (c.getAttribute("data-co") === key) c.classList.toggle("on", on);
+      });
+    }
+    headers.forEach(function (h) {
+      var key = h.getAttribute("data-fp");
+      h.addEventListener("mouseenter", function () { h.classList.add("on"); showCo(key, true); });
+      h.addEventListener("mouseleave", function () { h.classList.remove("on"); showCo(key, false); });
+      h.setAttribute("tabindex", "0");
+      h.addEventListener("click", function () {
+        var willShow = !h.classList.contains("on");
+        headers.forEach(function (o) { o.classList.remove("on"); });
+        cos.forEach(function (c) { c.classList.remove("on"); });
+        if (willShow) { h.classList.add("on"); showCo(key, true); }
+      });
+      h.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); h.click(); }
+      });
+    });
+  }
+
+  /* ---- scroll-triggered sequence reveal ---- */
+  var seq = document.getElementById("seq");
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (seq && !reduce && "IntersectionObserver" in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { seq.classList.add("is-lit"); io.disconnect(); }
+      });
+    }, { threshold: 0.25 });
+    io.observe(seq);
+  } else if (seq) {
+    seq.classList.add("is-lit");
+  }
+})();
+</script>
+</body>
+</html>

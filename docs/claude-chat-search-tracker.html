@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude-Chat Search — Build Tracker</title>
+<style>
+  :root{--bg:#0d1117;--panel:#161b22;--bd:#30363d;--tx:#c9d3de;--dim:#8b949e;--hi:#e6edf3;
+        --done:#3fb950;--now:#f0883e;--todo:#6e7681;--k:#79c0ff;
+        --mono:"SFMono-Regular",Consolas,Menlo,monospace;--sans:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;}
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--tx);font-family:var(--sans);margin:0;padding:0 16px 60px;line-height:1.55}
+  .wrap{max-width:820px;margin:0 auto}
+  header{padding:34px 0 14px;border-bottom:1px solid var(--bd);margin-bottom:18px}
+  h1{font-size:24px;color:var(--hi);margin:0 0 4px}
+  .sub{color:var(--dim);font-size:13.5px}
+  .bar{height:10px;background:var(--panel);border:1px solid var(--bd);border-radius:6px;overflow:hidden;margin:18px 0 6px}
+  .fill{height:100%;background:linear-gradient(90deg,#238636,#3fb950);width:73%}
+  .pct{color:var(--dim);font-size:12.5px;margin-bottom:24px}
+  .phase{font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--dim);margin:22px 0 8px;border-top:1px solid var(--bd);padding-top:14px}
+  .row{display:flex;gap:12px;align-items:flex-start;padding:8px 10px;border-radius:8px}
+  .row:hover{background:var(--panel)}
+  .ico{font-family:var(--mono);font-size:14px;width:20px;flex:none;text-align:center}
+  .d .ico{color:var(--done)} .n .ico{color:var(--now)} .t .ico{color:var(--todo)}
+  .body{flex:1}
+  .ttl{font-size:14.5px;color:var(--hi)} .t .ttl{color:var(--dim)}
+  .meta{font-size:12.5px;color:var(--dim);margin-top:2px}
+  .tag{font-family:var(--mono);font-size:10.5px;padding:1px 7px;border-radius:20px;border:1px solid var(--bd);color:var(--dim);margin-left:6px}
+  .n .tag{color:var(--now);border-color:#5a3a1a}
+  code{font-family:var(--mono);background:#1a1f27;padding:1px 5px;border-radius:4px;font-size:12px;color:#a5d6ff}
+  .foot{margin-top:30px;padding-top:14px;border-top:1px solid var(--bd);color:var(--dim);font-size:12px}
+  .next{background:#1c160d;border:1px solid #5a3a1a;border-radius:10px;padding:12px 14px;margin:8px 0 0}
+  .next b{color:var(--now)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Claude-Chat Search — Build Tracker</h1>
+  <div class="sub">Private, always-on, single-user search over your whole Claude history · pure Postgres (pgvector + tsvector + RRF)</div>
+  <div class="bar"><div class="fill"></div></div>
+  <div class="pct">8 of 11 done · search + local app working; Vercel deploy remains</div>
+</header>
+
+<div class="phase">Phase 1 · Foundation</div>
+<div class="row d"><div class="ico">✔</div><div class="body"><div class="ttl">Data layer</div><div class="meta">Neon <code>claude_chat</code> — 1,423 convs · 16,602 msgs · 16,199 embeddings · ~140 MB / 512 MB</div></div></div>
+<div class="row d"><div class="ico">✔</div><div class="body"><div class="ttl">Migration old → new DB</div><div class="meta">app-level copy, embeddings preserved, HNSW index dropped (free-tier safe); <code>.env</code> switched</div></div></div>
+<div class="row d"><div class="ico">✔</div><div class="body"><div class="ttl">Auto-sync from claude.ai</div><div class="meta"><code>claude_history.py sync</code> — incremental, browser-headers past Cloudflare, no export</div></div></div>
+
+<div class="phase">Phase 2 · Search (complete)</div>
+<div class="row d"><div class="ico">✔</div><div class="body"><div class="ttl">Lexical search</div><div class="meta">Postgres full-text — <code>tsvector</code> + <code>plainto_tsquery('simple')</code></div></div></div>
+<div class="row d"><div class="ico">✔</div><div class="body"><div class="ttl">Semantic search</div><div class="meta">pgvector + bge-m3 (1024-dim) cosine <code>&lt;=&gt;</code>, brute-force exact</div></div></div>
+<div class="row d"><div class="ico">✔</div><div class="body"><div class="ttl">Hybrid (RRF)</div><div class="meta"><code>cmd_hybrid</code> — fuse lexical + semantic by rank, <code>ts_rank_cd</code>, [L/S/LS] source tags · <b style="color:var(--done)">verified: consensus hits rank top</b></div></div></div>
+
+<div class="phase">Phase 3 · Web wrapper</div>
+<div class="row d"><div class="ico">✔</div><div class="body"><div class="ttl">FastAPI app</div><div class="meta"><code>/api/search /semantic /hybrid</code> JSON · <b style="color:var(--done)">verified: matches the CLI exactly</b> · bge-m3 query embed local</div></div></div>
+<div class="row d"><div class="ico">✔</div><div class="body"><div class="ttl">Search UI</div><div class="meta">box · hybrid/lexical/semantic toggle · results + src tags · deep-link to <code>claude.ai/chat</code> · <span style="color:var(--dim)">(in-app thread view = later)</span></div></div></div>
+
+<div class="phase">Phase 4 · Deploy (Vercel · serverless · ~$0)</div>
+<div class="row t"><div class="ico">○</div><div class="body"><div class="ttl">Wire query embedding → DeepInfra</div><div class="meta">bge-m3 · 1024-dim · L2-normalized · key in Vercel env · only the query text leaves</div></div></div>
+<div class="row t"><div class="ico">○</div><div class="body"><div class="ttl">Build + deploy the Vercel app</div><div class="meta">search page + <code>/api/search</code> (Next.js or FastAPI-on-Vercel) · <code>git push</code> deploy · scales to zero</div></div></div>
+<div class="row t"><div class="ico">○</div><div class="body"><div class="ttl">Cloudflare Access (passkey) + JWT check</div><div class="meta"><code>chat.yourdomain.com</code> · app verifies CF-Access JWT so raw <code>*.vercel.app</code> can't bypass</div></div></div>
+
+<div class="phase">Up next</div>
+<div class="next"><b>▸ Deploy on Vercel (Phase 4)</b> — wire the query embed to <code>DeepInfra</code>, build the search page + <code>/api/search</code>, <code>git push</code> to Vercel, then gate it with Cloudflare Access (passkey) at <code>chat.yourdomain.com</code>. <b>Host = Vercel, not EC2</b> (request/response → serverless, ~$0, no box to babysit). Local app already runs at <code>127.0.0.1:8800</code>.</div>
+
+<div class="foot">living tracker · updated as we go · architecture: <code>docs/claude-chat-search-architecture.html</code></div>
+</div>
+</body>
+</html>

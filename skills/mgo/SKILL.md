@@ -1,7 +1,6 @@
 ---
-name: mongo
-description: Query recent Claude Code activity across all machines from MongoDB
-disable-model-invocation: true
+name: mgo
+description: Query recent Claude Code activity across all machines from MongoDB. Use when the user asks what they (or Claude) worked on, discussed or decided recently, or to recall something from past sessions.
 argument-hint: <duration> (e.g. 10, 30m, 2h, 1d — default unit is minutes)
 ---
 

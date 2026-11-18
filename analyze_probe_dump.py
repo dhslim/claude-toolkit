@@ -20,6 +20,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from typing import Optional
 
 HERE = Path(__file__).parent
 
@@ -178,7 +179,7 @@ def main():
     cum_tokens = 0
     cum_bytes = 0
     thresholds = [50_000, 100_000, 150_000, 200_000, 300_000, 500_000]
-    hits: dict[int, int | None] = {t: None for t in thresholds}
+    hits: dict[int, Optional[int]] = {t: None for t in thresholds}
 
     for i, (b, t, _) in enumerate(per_group):
         cum_bytes += b

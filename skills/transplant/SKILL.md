@@ -1,7 +1,6 @@
 ---
 name: transplant
 description: Clone a Claude Code session JSONL into another working directory as an independent copy
-disable-model-invocation: true
 argument-hint: <source.jsonl> <target-directory>
 ---
 

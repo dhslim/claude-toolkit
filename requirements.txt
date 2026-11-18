@@ -6,3 +6,10 @@ python-dotenv>=1.0.0
 httpx>=0.27
 fastapi>=0.110
 uvicorn>=0.27
+
+# /digest skill (URL → summary dispatcher).
+# yt-dlp handles YouTube + many other video platforms.
+# instaloader is the anonymous Instagram fetcher (caption + images + counts).
+# Threads / Reddit / generic-HTML fetchers use only stdlib (urllib + regex).
+yt-dlp>=2025.1.0
+instaloader>=4.15
