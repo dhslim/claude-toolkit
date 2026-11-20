@@ -242,6 +242,15 @@ This enables the `/unbadge` slash command, which removes a session's name to cle
 
 The name lives in three places (session record, transcript, and — for daemon-backed sessions only — job state); missing the third is why the badge reappears. The script refuses to act on a live session, backs up every file it edits, and removes only the two name keys from job state. See `docs/session-badge-removal.html` for the mechanism, and note that the *name* (unlike the badge) is injected into the model's context each turn — if it is merely wrong, `/rename <something-truthful>` is the better fix.
 
+### 15b. Install /basecamp skill
+
+Copy the skill template from this repo to the global skills directory:
+
+1. Create `~/.claude/skills/basecamp/SKILL.md`
+2. Use the template from `skills/basecamp/SKILL.md` in this repo as-is (pure instruction text; it expects the basecamp journal repo at `~/basecamp`)
+
+This enables `/basecamp [topic]` in any repo: it reads `~/basecamp` (threads, journal, repos, clinics) and briefs the session on what's open, recently decided and risky for that repo. Read-only; basecamp pulls work back in with its own `/catchup`.
+
 ### 16. Recommended environment variable
 
 `CLAUDE_CODE_NO_FLICKER=1` is already included in the `env` block of the platform settings templates (`platform/linux/settings.json`, `platform/macos/settings.json`, `platform/windows/settings.json`), so a standard install via step 5 picks it up automatically — no manual step needed. This is the default behavior since Claude Code v2.1.89, but setting it explicitly future-proofs against the default ever flipping. It enables fullscreen rendering and the in-app `Ctrl+O → [` history-dump trick.

@@ -50,6 +50,7 @@ For the proxy: `python install_claude_proxy.py` — writes the shell wrapper tha
 | Command | Does |
 |---|---|
 | `/mgo 2h` | recent activity across all machines |
+| `/basecamp` | what basecamp (the journal / control tower) knows about this repo |
 | `/digest <url>` | fetch + summarize a social/web post |
 | `/grill-me <topic>` | Claude quizzes you on a topic, file, PR, or diff |
 | `/transplant <jsonl> <dir>` | clone a session into another working directory |
